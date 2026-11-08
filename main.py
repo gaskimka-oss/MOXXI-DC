@@ -301,7 +301,7 @@ class BossRaidView(disnake.ui.View):
                 description=f"🎉 {inter.author.mention} нанёс смертельный удар на **{dmg} урона** и забрал казну босса: **+{rew:,} 🌑 монет**!",
                 color=disnake.Color.gold()
             )
-            await inter.channel.send(embed=embed)
+            await inter.response.edit_message(embed=embed, view=None)
             return
 
         left_hp = res.get("hp_left", 0)
@@ -377,7 +377,13 @@ class HelpSelect(disnake.ui.StringSelect):
             disnake.SelectOption(label="Кейсы и Лутбоксы", value="sec_11", emoji="🎁", description="4 уровня кейсов, дроп суперкаров"),
             disnake.SelectOption(label="РП Реакции и Действия", value="sec_12", emoji="🎭", description="Обнять, поцеловать, погладить, кусь"),
         ]
-        super().__init__(placeholder="Выберите раздел команд...", min_values=1, max_values=1, options=options)
+        super().__init__(
+            placeholder="Выберите раздел команд...",
+            min_values=1,
+            max_values=1,
+            options=options,
+            custom_id="moxxi_dc_help_select"
+        )
 
     async def callback(self, inter: disnake.MessageInteraction):
         val = self.values[0]
