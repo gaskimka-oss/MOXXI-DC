@@ -345,24 +345,40 @@ class SlashSuite(commands.Cog):
 
         await inter.edit_original_response(embed=embed)
 
-    @commands.slash_command(name="устроиться", description="📝 Устроиться на выбранную профессию по номеру (1-8)")
+    @commands.slash_command(name="устроиться", description="📝 Выбрать и устроиться на профессию из списка")
     async def cmd_apply_job(
         self,
         inter: disnake.ApplicationCommandInteraction,
-        номер_профессии: int = commands.Param(ge=1, le=8, description="Номер профессии от 1 до 8")
+        профессия: Optional[str] = commands.Param(
+            default=None,
+            description="Выберите профессию из выпадающего списка",
+            choices=[
+                disnake.OptionChoice("1. 🧹 Дворник / Уборщик (150-350 🌑 | с 1 ур.)", "1"),
+                disnake.OptionChoice("2. 🚴 Доставщик / Курьер (400-800 🌑 | со 2 ур.)", "2"),
+                disnake.OptionChoice("3. ☕️ Бариста / Официант (900-1,600 🌑 | с 4 ур.)", "3"),
+                disnake.OptionChoice("4. 🚕 Водитель такси (1,800-3,200 🌑 | с 7 ур.)", "4"),
+                disnake.OptionChoice("5. 💻 IT-Программист (3,500-6,500 🌑 | с 10 ур.)", "5"),
+                disnake.OptionChoice("6. 🏦 Банковский аналитик (7,000-13,000 🌑 | с 15 ур.)", "6"),
+                disnake.OptionChoice("7. 🏛 Государственный советник (15,000-28,000 🌑 | с 25 ур.)", "7"),
+                disnake.OptionChoice("8. 💎 Президент холдинга (35,000-65,000 🌑 | с 40 ур.)", "8"),
+            ]
+        )
     ):
         await inter.response.defer()
+        if not профессия:
+            return await self.cmd_jobs(inter)
+
         u_uid = config.DISCORD_UID_OFFSET + inter.author.id
         await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
         u_data = await db.get_user(u_uid) or {}
         user_xp = u_data.get("xp", 0)
         user_lvl = max(1, int((user_xp / 100) ** 0.5) + 1)
 
-        job_str = str(номер_профессии)
-        if job_str not in JOBS_CATALOG:
-            return await inter.edit_original_response("❌ Неверный номер профессии! Посмотрите список: `/работы`.")
+        job_str = str(профессия)
+        job = JOBS_CATALOG.get(job_str) or KEY_TO_JOB.get(job_str)
+        if not job:
+            return await inter.edit_original_response("❌ Неверная профессия! Выберите из списка: `/работы`.")
 
-        job = JOBS_CATALOG[job_str]
         if user_lvl < job["req_lvl"]:
             return await inter.edit_original_response(
                 f"❌ Для должности **{job['title']}** требуется минимум **{job['req_lvl']} уровень** (ваш: {user_lvl} ур.)!\n"
@@ -473,14 +489,16 @@ class SlashSuite(commands.Cog):
     # ═══════════════════════════════════════════════════════════════
     # 9. МАГАЗИН ПРЕДМЕТОВ
     # ═══════════════════════════════════════════════════════════════
-    @commands.slash_command(name="магазин", description="🛒 Магазин предметов, сейфов и бустеров опыта")
+    @commands.slash_command(name="магазин", description="🛒 Витрина предметов, защитных сейфов и бустеров")
     async def cmd_shop(self, inter: disnake.ApplicationCommandInteraction):
+        await inter.response.defer()
         embed = disnake.Embed(
             title="🛒 МАГАЗИН ПРЕДМЕТОВ MOXXI",
             description=(
-                "Выберите номер товара и купите его через `/купить [номер]`:\n\n"
+                "Выберите предмет для покупки из выпадающего списка `/купить [товар]` "
+                "или нажмите на кнопку под этим сообщением:\n\n"
                 "**1.** 🛡 **Сейф от грабителей** — `5,000` 🌑\n"
-                "   *100% иммунитет от любых ограблений на 7 дней!*\n\n"
+                "   *100% иммунитет от любых краж на 7 дней!*\n\n"
                 "**2.** ⚡️ **Бустер опыта 2x** — `2,500` 🌑\n"
                 "   *Удваивает весь получаемый XP в чате на 24 часа!*\n\n"
                 "**3.** 🎫 **Лотерейный билет** — `500` 🌑\n"
@@ -490,54 +508,97 @@ class SlashSuite(commands.Cog):
             ),
             color=disnake.Color.blurple()
         )
-        await inter.response.send_message(embed=embed)
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(style=disnake.ButtonStyle.primary, label="🛡 Сейф (5,000 🌑)", custom_id="dc_shop_buy:safe"))
+        view.add_item(disnake.ui.Button(style=disnake.ButtonStyle.success, label="⚡️ Бустер 2x (2,500 🌑)", custom_id="dc_shop_buy:booster"))
+        view.add_item(disnake.ui.Button(style=disnake.ButtonStyle.secondary, label="🎫 Лотерея (500 🌑)", custom_id="dc_shop_buy:lottery"))
+        view.add_item(disnake.ui.Button(style=disnake.ButtonStyle.secondary, label="⛏ Шахтёр (1,500 🌑)", custom_id="dc_shop_buy:miner"))
+        await inter.edit_original_response(embed=embed, view=view)
 
     # ═══════════════════════════════════════════════════════════════
     # 10. КУПИТЬ ПРЕДМЕТ
     # ═══════════════════════════════════════════════════════════════
-    @commands.slash_command(name="купить", description="💳 Купить предмет из магазина по номеру (1-4)")
+    @commands.slash_command(name="купить", description="💳 Купить предмет или улучшение в магазине")
     async def cmd_buy(
         self,
         inter: disnake.ApplicationCommandInteraction,
-        номер_товара: int = commands.Param(ge=1, le=4, description="Номер товара от 1 до 4")
+        товар: Optional[str] = commands.Param(
+            default=None,
+            description="Выберите предмет для покупки из списка",
+            choices=[
+                disnake.OptionChoice("🛡 Сейф от грабителей (5,000 🌑) — защита на 7 дней", "safe"),
+                disnake.OptionChoice("⚡️ Бустер опыта 2x (2,500 🌑) — удвоение XP на 24 часа", "booster"),
+                disnake.OptionChoice("🎫 Лотерейный билет (500 🌑) — билет на тираж", "lottery"),
+                disnake.OptionChoice("⛏ Набор шахтёра (1,500 🌑) — +50% к добыче в шахте", "miner"),
+            ]
+        )
     ):
+        await inter.response.defer()
+        if not товар:
+            return await self.cmd_shop(inter)
+
         u_uid = config.DISCORD_UID_OFFSET + inter.author.id
         await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
         u_data = await db.get_user(u_uid) or {}
         bal = u_data.get("balance", 0)
         now = int(time.time())
 
-        if номер_товара == 1:
+        # Match item
+        t_key = str(товар).lower()
+        if t_key in ("1", "safe", "сейф"):
             price = 5000
             if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑.", ephemeral=True)
+                return await inter.edit_original_response(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑, а у вас `{bal:,}` 🌑.")
             await db.add_balance(u_uid, -price)
             until = max(now, u_data.get("safe_until", 0)) + 7 * 86400
             await db.set_user_safe(u_uid, until)
-            return await inter.response.send_message(f"🛡 Вы успешно приобрели **Сейф от грабителей** на 7 дней (до <t:{until}:F>)!")
+            embed = disnake.Embed(
+                title="🛡 ПОКУПКА УСПЕШНА!",
+                description=f"Вы приобрели **Сейф от грабителей**!\n\n🔒 Ваш кошелёк защищён от ограблений до <t:{until}:F> (<t:{until}:R>)!\n💰 Списано: `-{price:,}` 🌑.",
+                color=disnake.Color.green()
+            )
+            return await inter.edit_original_response(embed=embed)
 
-        elif номер_товара == 2:
+        elif t_key in ("2", "booster", "бустер"):
             price = 2500
             if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑.", ephemeral=True)
+                return await inter.edit_original_response(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑, а у вас `{bal:,}` 🌑.")
             await db.add_balance(u_uid, -price)
             until = max(now, u_data.get("xp_booster_until", 0)) + 86400
             await db.set_user_xp_booster(u_uid, until)
-            return await inter.response.send_message(f"⚡️ Вы успешно активировали **Бустер опыта 2x** на 24 часа (до <t:{until}:F>)!")
+            embed = disnake.Embed(
+                title="⚡️ ПОКУПКА УСПЕШНА!",
+                description=f"Вы активировали **Бустер опыта 2x**!\n\n🚀 Весь получаемый XP в чате удваивается до <t:{until}:F> (<t:{until}:R>)!\n💰 Списано: `-{price:,}` 🌑.",
+                color=disnake.Color.green()
+            )
+            return await inter.edit_original_response(embed=embed)
 
-        elif номер_товара == 3:
+        elif t_key in ("3", "lottery", "билет", "лотерея"):
             price = 500
             if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑.", ephemeral=True)
+                return await inter.edit_original_response(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑, а у вас `{bal:,}` 🌑.")
             await db.add_balance(u_uid, -price)
-            return await inter.response.send_message("🎫 Вы купили **Лотерейный билет**! Удачи в розыгрыше!")
+            embed = disnake.Embed(
+                title="🎫 ПОКУПКА УСПЕШНА!",
+                description=f"Вы приобрели **Лотерейный билет**!\n\n🎉 Желаем удачи в ближайшем тираже джекпота!\n💰 Списано: `-{price:,}` 🌑.",
+                color=disnake.Color.green()
+            )
+            return await inter.edit_original_response(embed=embed)
 
-        elif номер_товара == 4:
+        elif t_key in ("4", "miner", "шахтер", "шахтёр", "кирка"):
             price = 1500
             if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑.", ephemeral=True)
+                return await inter.edit_original_response(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑, а у вас `{bal:,}` 🌑.")
             await db.add_balance(u_uid, -price)
-            return await inter.response.send_message("⛏ Вы приобрели **Набор шахтёра**! Добыча в шахте увеличена!")
+            embed = disnake.Embed(
+                title="⛏ ПОКУПКА УСПЕШНА!",
+                description=f"Вы приобрели **Набор шахтёра**!\n\n💎 Добыча ценных ресурсов в шахте увеличена на 50%!\n💰 Списано: `-{price:,}` 🌑.",
+                color=disnake.Color.green()
+            )
+            return await inter.edit_original_response(embed=embed)
+
+        else:
+            return await inter.edit_original_response("❌ Неизвестный товар! Посмотрите витрину: `/магазин`.")
 
     # ═══════════════════════════════════════════════════════════════
     # 11. ИНВЕНТАРЬ

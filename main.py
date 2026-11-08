@@ -2611,6 +2611,47 @@ async def on_button_click(inter: disnake.MessageInteraction):
         await message.reply(embed=embed)
         return
 
+    # --- Shop Button Purchase ---
+    elif cid.startswith("dc_shop_buy:"):
+        item_key = cid.split(":", 1)[1]
+        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+        await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
+        u_data = await db.get_user(u_uid) or {}
+        bal = u_data.get("balance", 0)
+        now = int(time.time())
+
+        if item_key == "safe":
+            price = 5000
+            if bal < price:
+                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
+            await db.add_balance(u_uid, -price)
+            until = max(now, u_data.get("safe_until", 0)) + 7 * 86400
+            await db.set_user_safe(u_uid, until)
+            return await inter.response.send_message(f"🛡 Вы успешно приобрели **Сейф от грабителей** на 7 дней (до <t:{until}:F>)!", ephemeral=True)
+
+        elif item_key == "booster":
+            price = 2500
+            if bal < price:
+                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
+            await db.add_balance(u_uid, -price)
+            until = max(now, u_data.get("xp_booster_until", 0)) + 86400
+            await db.set_user_xp_booster(u_uid, until)
+            return await inter.response.send_message(f"⚡️ Вы успешно активировали **Бустер опыта 2x** на 24 часа (до <t:{until}:F>)!", ephemeral=True)
+
+        elif item_key == "lottery":
+            price = 500
+            if bal < price:
+                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
+            await db.add_balance(u_uid, -price)
+            return await inter.response.send_message("🎫 Вы купили **Лотерейный билет**! Удачи в розыгрыше!", ephemeral=True)
+
+        elif item_key == "miner":
+            price = 1500
+            if bal < price:
+                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
+            await db.add_balance(u_uid, -price)
+            return await inter.response.send_message("⛏ Вы приобрели **Набор шахтёра**! Добыча в шахте увеличена!", ephemeral=True)
+
     # --- Ticket Panel Button ---
     elif cid == "dc_open_ticket_panel":
         # Create ticket for user
