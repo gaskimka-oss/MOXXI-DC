@@ -22,6 +22,21 @@ import wordle_game
 
 log = logging.getLogger("moxxi-dc")
 
+# ═══════════════════════════════════════════════════════════════
+# 💼 КАТАЛОГ ПРОФЕССИЙ MOXXI
+# ═══════════════════════════════════════════════════════════════
+JOBS_CATALOG = {
+    "1": {"key": "уборщик", "title": "🧹 Дворник / Уборщик", "req_lvl": 1, "min_pay": 150, "max_pay": 350, "cooldown": 1200, "desc": "Уборка улиц и помещений города MOXXI."},
+    "2": {"key": "курьер", "title": "🚴 Доставщик / Курьер", "req_lvl": 2, "min_pay": 400, "max_pay": 800, "cooldown": 1500, "desc": "Быстрая доставка еды и ценных посылок."},
+    "3": {"key": "бариста", "title": "☕️ Бариста / Официант", "req_lvl": 4, "min_pay": 900, "max_pay": 1600, "cooldown": 1800, "desc": "Варка авторского кофе и обслуживание гостей."},
+    "4": {"key": "таксист", "title": "🚕 Водитель такси", "req_lvl": 7, "min_pay": 1800, "max_pay": 3200, "cooldown": 2100, "desc": "Пассажирские перевозки по неоновым улицам."},
+    "5": {"key": "программист", "title": "💻 IT-Программист", "req_lvl": 10, "min_pay": 3500, "max_pay": 6500, "cooldown": 2400, "desc": "Разработка ядра, систем и модулей бота MOXXI."},
+    "6": {"key": "банкир", "title": "🏦 Банковский аналитик", "req_lvl": 15, "min_pay": 7000, "max_pay": 13000, "cooldown": 2700, "desc": "Управление крупными инвестициями и вкладами."},
+    "7": {"key": "депутат", "title": "🏛 Государственный советник", "req_lvl": 25, "min_pay": 15000, "max_pay": 28000, "cooldown": 3000, "desc": "Принятие законов и распределение городской казны."},
+    "8": {"key": "олигарх", "title": "💎 Президент холдинга", "req_lvl": 40, "min_pay": 35000, "max_pay": 65000, "cooldown": 3600, "desc": "Руководство корпорацией и мировыми активами."},
+}
+KEY_TO_JOB = {j["key"]: j for j in JOBS_CATALOG.values()}
+
 
 def build_bar(cur: int, total: int, length: int = 10) -> str:
     ratio = min(1.0, max(0.0, cur / total if total > 0 else 0))
@@ -231,44 +246,148 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 6. РАБОТА
+    # 6. РАБОТА И КАРЬЕРА (СИНХРОНИЗИРОВАНО С ПРИЛОЖЕНИЕМ)
     # ═══════════════════════════════════════════════════════════════
-    @commands.slash_command(name="работа", description="💼 Отработать смену и получить зарплату в монетах")
+    @commands.slash_command(name="работа", description="💼 Отработать смену по вашей профессии и получить зарплату")
     async def cmd_work(self, inter: disnake.ApplicationCommandInteraction):
+        await inter.response.defer()
+
         u_uid = config.DISCORD_UID_OFFSET + inter.author.id
         await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
         u_data = await db.get_user(u_uid) or {}
+        user_xp = u_data.get("xp", 0)
+        user_lvl = max(1, int((user_xp / 100) ** 0.5) + 1)
+
+        job_row = await db.get_user_job(u_uid)
+        first_time = False
+
+        if not job_row or not job_row.get("job_key") or job_row.get("job_key") not in KEY_TO_JOB:
+            # Автоматически трудоустраиваем новичка на стартовую должность 'уборщик'
+            default_key = "уборщик"
+            await db.set_user_job(u_uid, default_key)
+            job_row = await db.get_user_job(u_uid)
+            first_time = True
+
+        job_key = job_row["job_key"]
+        job = KEY_TO_JOB[job_key]
 
         now = int(time.time())
-        last = u_data.get("last_work_ts", 0)
-        cd = 3600
-        if now - last < cd:
-            left = cd - (now - last)
-            return await inter.response.send_message(
-                f"⏳ Вы уже отработали смену! Отдохните ещё **{left // 60} мин. {left % 60} сек.**",
-                ephemeral=True
-            )
+        diff = now - (job_row.get("last_worked", 0) or 0)
+        cd = job["cooldown"]
 
-        salary = random.randint(150, 600)
-        jobs = [
-            ("Программистом MOXXI Core", "💻 Написали крутой алгоритм для бота"),
-            ("Официантом в кибер-баре", "☕️ Разнесли заказы гостям без пролитого кофе"),
-            ("Шахтёром в глубоких катакомбах", "⛏ Добыли редкую партию руды"),
-            ("Крипто-трейдером", "📈 Успешно закрыли лонг на фьючерсах"),
-            ("Курьером экспресс-доставки", "🛵 Доставили все посылки вовремя"),
-            ("Охранником в хранилище банка", "🛡 Предотвратили попытку взлома"),
-        ]
-        job_title, job_desc = random.choice(jobs)
+        if not first_time and diff < cd:
+            rem = cd - diff
+            rm = rem // 60
+            rs = rem % 60
+            embed = disnake.Embed(
+                title="⏳ Смена ещё не началась!",
+                description=(
+                    f"Вы уже отработали прошлую смену на должности **{job['title']}**!\n\n"
+                    f"⏱ Отдохните ещё **{rm} мин. {rs} сек.** перед новым выходом на работу."
+                ),
+                color=disnake.Color.orange()
+            )
+            return await inter.edit_original_response(embed=embed)
+
+        salary = random.randint(job["min_pay"], job["max_pay"])
+        xp_gain = 35
 
         await db.add_balance(u_uid, salary)
-        await db.update_user_action_cooldown(u_uid, "last_work_ts", now)
+        await db.add_user_xp(u_uid, xp_gain)
+        await db.record_job_work(u_uid, salary, now)
+
+        first_note = "🎉 **Поздравляем с первым трудоустройством!** Вы приняты на должность дворника.\n\n" if first_time else ""
+        tot = (job_row.get("total_earned", 0) or 0) + salary
 
         embed = disnake.Embed(
-            title=f"💼 Трудовая смена: {job_title}",
-            description=f"{job_desc}\n\n💰 **Заработано:** `+{salary:,}` 🌑 монет!\n💵 *Деньги зачислены на ваш баланс.*",
+            title=f"💼 Успешная смена: {job['title']}",
+            description=(
+                f"{first_note}"
+                f"📝 *{job['desc']}*\n\n"
+                f"💰 **Заработано за смену:** `+{salary:,}` 🌑 монет\n"
+                f"⚡️ **Получено опыта:** `+{xp_gain}` XP\n"
+                f"📊 **Всего заработано за карьеру:** `{tot:,}` 🌑\n\n"
+                f"💡 *Посмотреть список других профессий: `/работы` или `работы` в чат.*"
+            ),
             color=disnake.Color.green()
         )
-        await inter.response.send_message(embed=embed)
+        await inter.edit_original_response(embed=embed)
+
+    @commands.slash_command(name="работы", description="📋 Список доступных профессий, зарплат и требований")
+    async def cmd_jobs(self, inter: disnake.ApplicationCommandInteraction):
+        await inter.response.defer()
+        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+        await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
+        u_data = await db.get_user(u_uid) or {}
+        user_xp = u_data.get("xp", 0)
+        user_lvl = max(1, int((user_xp / 100) ** 0.5) + 1)
+
+        job_row = await db.get_user_job(u_uid)
+        cur_key = job_row.get("job_key") if job_row else None
+
+        embed = disnake.Embed(
+            title="💼 КАРЬЕРНАЯ ЛЕСТНИЦА MOXXI",
+            description=f"👤 Ваш уровень: **Уровень {user_lvl}**\n\n"
+                        f"Выберите профессию и устройтесь через `/устроиться [номер]`:\n\n",
+            color=disnake.Color.blurple()
+        )
+
+        for num, j in JOBS_CATALOG.items():
+            mark = " ✅ *(Ваша должность)*" if cur_key == j["key"] else ""
+            status = "🔓 Доступно" if user_lvl >= j["req_lvl"] else f"🔒 Требуется {j['req_lvl']} ур."
+            cd_min = j["cooldown"] // 60
+            embed.add_field(
+                name=f"{num}. {j['title']}{mark}",
+                value=f"💵 Зарплата: `{j['min_pay']:,} - {j['max_pay']:,}` 🌑 | ⏱ Кулдаун: `{cd_min} мин.`\n"
+                      f"Статус: **{status}** • *{j['desc']}*",
+                inline=False
+            )
+
+        await inter.edit_original_response(embed=embed)
+
+    @commands.slash_command(name="устроиться", description="📝 Устроиться на выбранную профессию по номеру (1-8)")
+    async def cmd_apply_job(
+        self,
+        inter: disnake.ApplicationCommandInteraction,
+        номер_профессии: int = commands.Param(ge=1, le=8, description="Номер профессии от 1 до 8")
+    ):
+        await inter.response.defer()
+        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+        await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
+        u_data = await db.get_user(u_uid) or {}
+        user_xp = u_data.get("xp", 0)
+        user_lvl = max(1, int((user_xp / 100) ** 0.5) + 1)
+
+        job_str = str(номер_профессии)
+        if job_str not in JOBS_CATALOG:
+            return await inter.edit_original_response("❌ Неверный номер профессии! Посмотрите список: `/работы`.")
+
+        job = JOBS_CATALOG[job_str]
+        if user_lvl < job["req_lvl"]:
+            return await inter.edit_original_response(
+                f"❌ Для должности **{job['title']}** требуется минимум **{job['req_lvl']} уровень** (ваш: {user_lvl} ур.)!\n"
+                f"Общайтесь в чате и играйте, чтобы повысить свой уровень."
+            )
+
+        await db.set_user_job(u_uid, job["key"])
+        embed = disnake.Embed(
+            title="🎉 ПОЗДРАВЛЯЕМ С ТРУДОУСТРОЙСТВОМ!",
+            description=(
+                f"Вы успешно назначены на должность: **{job['title']}**!\n\n"
+                f"💰 **Зарплата:** `{job['min_pay']:,} - {job['max_pay']:,}` 🌑 за смену\n"
+                f"⏱ **Интервал смен:** `{job['cooldown'] // 60} мин.`\n\n"
+                f"👉 Чтобы выйти на работу прямо сейчас, введите: `/работа`!"
+            ),
+            color=disnake.Color.green()
+        )
+        await inter.edit_original_response(embed=embed)
+
+    @commands.slash_command(name="уволиться", description="🚪 Уволиться с текущей работы по собственному желанию")
+    async def cmd_quit_job(self, inter: disnake.ApplicationCommandInteraction):
+        await inter.response.defer()
+        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+        await db.quit_user_job(u_uid)
+        await inter.edit_original_response("🚪 Вы успешно уволились с работы и теперь свободны! Чтобы выбрать новую, введите: `/работы`.")
 
     # ═══════════════════════════════════════════════════════════════
     # 7. ПОПРОШАЙНИЧАТЬ

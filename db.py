@@ -1089,3 +1089,32 @@ async def update_user_action_cooldown(user_id: int, action: str) -> None:
     if col:
         await conn().execute(f"UPDATE users SET {col} = ? WHERE user_id = ?", (now, user_id))
         await conn().commit()
+
+
+# ═══════════════════════════════════════════════════════════════
+# 💼 СИСТЕМА РАБОТ И КАРЬЕРЫ (USER_JOBS)
+# ═══════════════════════════════════════════════════════════════
+async def get_user_job(user_id: int) -> dict | None:
+    async with conn().execute("SELECT * FROM user_jobs WHERE user_id = ?", (user_id,)) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def set_user_job(user_id: int, job_key: str) -> None:
+    await conn().execute("""
+        INSERT INTO user_jobs (user_id, job_key, last_worked, total_earned)
+        VALUES (?, ?, 0, 0)
+        ON CONFLICT(user_id) DO UPDATE SET job_key = excluded.job_key
+    """, (user_id, job_key))
+    await conn().commit()
+
+async def record_job_work(user_id: int, salary: int, worked_at: int) -> None:
+    await conn().execute("""
+        UPDATE user_jobs
+        SET last_worked = ?, total_earned = COALESCE(total_earned, 0) + ?
+        WHERE user_id = ?
+    """, (worked_at, salary, user_id))
+    await conn().commit()
+
+async def quit_user_job(user_id: int) -> None:
+    await conn().execute("DELETE FROM user_jobs WHERE user_id = ?", (user_id,))
+    await conn().commit()
