@@ -920,6 +920,11 @@ async def anti_afk_ticket_watcher():
 @bot.event
 async def on_ready():
     log.info("Бот MOXXI Discord успешно вошел как: %s (ID: %d)", bot.user, bot.user.id)
+    try:
+        await bot._sync_application_commands()
+        log.info("Слэш-команды успешно синхронизированы с Discord!")
+    except Exception as e:
+        log.warning("Ошибка синхронизации команд: %s", e)
     bot.add_view(MainMenuView())
     bot.add_view(HelpView())
     asyncio.create_task(keep_alive_pulse())
@@ -2612,6 +2617,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())
