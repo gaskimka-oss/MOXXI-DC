@@ -492,16 +492,342 @@ async def keep_alive_pulse():
 # ═══════════════════════════════════════════════════════════════
 # 🚀 СОБЫТИЯ DISCORD
 # ═══════════════════════════════════════════════════════════════
+
+# ═══════════════════════════════════════════════════════════════
+# 👑 СИСТЕМА РАНГОВ (1-10) И ИНТЕГРАЦИЯ ПРАВ DISCORD
+# ═══════════════════════════════════════════════════════════════
+RANK_NAMES = {
+    0: "Участник",
+    1: "Стажёр",
+    2: "Младший модератор",
+    3: "Старший модератор",
+    4: "Главный модератор",
+    5: "Младший админ",
+    6: "Старший админ",
+    7: "Главный админ",
+    8: "Тех. администратор",
+    9: "Заместитель",
+    10: "Владелец чата",
+}
+
+RANK_ICONS = {
+    0: "👤",
+    1: "🌱",
+    2: "🔹",
+    3: "🔷",
+    4: "🌟",
+    5: "⚡️",
+    6: "🔮",
+    7: "💎",
+    8: "⚙️",
+    9: "🛡",
+    10: "👑",
+}
+
+RANK_PROMOTIONS = {
+    "+владелец": 10, "+лидер": 10, "+создатель": 10,
+    "+зам": 9, "+заместитель": 9,
+    "+техадмин": 8, "+тех админ": 8, "+технический администратор": 8,
+    "+га": 7, "+главный админ": 7, "+главный администратор": 7,
+    "+са": 6, "+старший админ": 6, "+старший администратор": 6,
+    "+ма": 5, "+младший админ": 5, "+младший администратор": 5,
+    "+гм": 4, "+гл": 4, "+главный модер": 4, "+главный модератор": 4,
+    "+см": 3, "+старший модер": 3, "+старший модератор": 3,
+    "+мм": 2, "+младший модер": 2, "+младший модератор": 2,
+    "+стажер": 1, "+стажёр": 1,
+}
+
+RANK_DEMOTIONS = {
+    "-владелец", "-лидер", "-создатель",
+    "-зам", "-заместитель",
+    "-техадмин", "-тех админ", "-технический администратор",
+    "-га", "-главный админ", "-главный администратор",
+    "-са", "-старший админ", "-старший администратор",
+    "-ма", "-младший админ", "-младший администратор",
+    "-гм", "-гл", "-главный модер", "-главный модератор",
+    "-см", "-старший модер", "-старший модератор",
+    "-мм", "-младший модер", "-младший модератор",
+    "-стажер", "-стажёр",
+}
+
+TWO_WORD_CMDS = {
+    "мой ранг", "мой_ранг",
+    "+главный админ", "+старший админ", "+младший админ",
+    "+главный модер", "+старший модер", "+младший модер",
+    "+главный модератор", "+старший модератор", "+младший модератор",
+    "+тех админ", "+технический администратор",
+    "-главный админ", "-старший админ", "-младший админ",
+    "-главный модер", "-старший модер", "-младший модер",
+    "-главный модератор", "-старший модератор", "-младший модератор",
+    "-тех админ", "-технический администратор",
+    "купить бизнес", "снять варн", "взять тикет", "закрыть тикет"
+}
+
+KNOWN_COMMANDS = {
+    # 0. Инвайт и веб
+    "пригласить", "инвайт", "invite", "добавить", "ссылка",
+    "играть", "апп", "app", "веб", "игра",
+    # 1. Меню и помощь
+    "старт", "start", "начать", "меню", "help", "помощь", "команды", "каталог",
+    # 2. Профиль и экономика
+    "профиль", "проф", "я", "стата", "баланс", "profile", "balance",
+    "бонус", "bonus", "ежедневный",
+    "банк", "депозит",
+    "бизнес", "бизнесы", "предприятия", "прибыль", "собрать", "купить_бизнес", "купитьбиз", "купить бизнес",
+    "шахта", "копать", "рыбалка", "ловить",
+    "ограбить", "кража", "rob",
+    "топ", "богачи", "лидеры", "top",
+    "брак", "свадьба", "пожениться", "развод",
+    "передать", "дать", "pay",
+    # 3. Игры и казино
+    "21", "очко", "bj", "blackjack",
+    "дуэль", "битвы", "fight", "duel",
+    "босс", "рейд", "boss",
+    "казино", "слоты", "рулетка",
+    # 4. Ранги и состав
+    "ранг", "мой ранг", "мой_ранг", "мойранг", "rank",
+    "состав", "стафф", "админы", "модераторы", "staff", "admins", "сетка",
+    "повысить", "+ранг", "ранг+", "up",
+    "понизить", "-ранг", "ранг-", "down",
+    "назначить", "setrank",
+    "снять", "разжаловать", "демоут",
+    # 5. Модерация
+    "кик", "kick", "бан", "ban", "варн", "warn", "варны", "warns",
+    "снятьварн", "снять варн", "unwarn", "мут", "mute", "размут", "unmute",
+    # 6. Поддержка и тикеты
+    "поддержка", "тикет", "support", "ticket",
+}
+KNOWN_COMMANDS.update(RANK_PROMOTIONS.keys())
+KNOWN_COMMANDS.update(RANK_DEMOTIONS)
+
+
+def get_discord_native_rank(member: disnake.Member) -> int:
+    """Определяет автоматический ранг в боте по нативным правам роли в Discord"""
+    if not isinstance(member, disnake.Member) or not member.guild:
+        return 0
+    # Владелец сервера Discord
+    if member.guild.owner_id == member.id:
+        return 10
+    perms = member.guild_permissions
+    if perms.administrator:
+        return 9
+    if perms.manage_guild:
+        return 8
+    if perms.ban_members and perms.manage_roles:
+        return 7
+    if perms.ban_members or perms.kick_members:
+        return 6
+    if perms.manage_messages and perms.moderate_members:
+        return 5
+    if perms.manage_messages:
+        return 3
+    if perms.moderate_members:
+        return 2
+    return 0
+
+
+async def get_effective_rank(guild_id: int, member: disnake.Member | disnake.User) -> int:
+    """Возвращает максимальный ранг: нативный Discord или выданный в БД бота"""
+    native = get_discord_native_rank(member) if isinstance(member, disnake.Member) else 0
+    db_cid = config.DISCORD_UID_OFFSET + guild_id
+    db_uid = config.DISCORD_UID_OFFSET + member.id
+    db_r = await db.get_user_rank(db_cid, db_uid)
+    return max(native, db_r)
+
+
+async def extract_target_discord_member(message: disnake.Message, args: str) -> disnake.Member | disnake.User | None:
+    """Находит целевого пользователя: по упоминанию, по ответу на сообщение или по ID"""
+    for m in message.mentions:
+        if m.id != bot.user.id:
+            return m
+    if message.reference and message.reference.message_id:
+        try:
+            ref_msg = await message.channel.fetch_message(message.reference.message_id)
+            if ref_msg and ref_msg.author and ref_msg.author.id != bot.user.id:
+                if message.guild:
+                    gm = message.guild.get_member(ref_msg.author.id)
+                    if gm:
+                        return gm
+                return ref_msg.author
+        except Exception:
+            pass
+    id_m = re.search(r"\b(\d{17,20})\b", args)
+    if id_m:
+        uid = int(id_m.group(1))
+        if message.guild:
+            gm = message.guild.get_member(uid)
+            if gm:
+                return gm
+        try:
+            return await bot.fetch_user(uid)
+        except Exception:
+            pass
+    return None
+
+
+def detect_staff_abuse(text: str) -> tuple[bool, str]:
+    """Проверка ответа сотрудника поддержки на мат и оскорбления игроков"""
+    t = text.lower()
+    subs = {'@': 'а', 'a': 'а', 'm': 'м', 't': 'т', 'b': 'б', '0': 'о', 'o': 'о', 'e': 'е'}
+    norm = "".join(subs.get(c, c) for c in t)
+
+    parent_patterns = [
+        r'\b(мать|матери|матерью|мамаша|мамашу|мамка|мамку|мамке|мамок|мамки|мку|mq)\b',
+        r'(твой|твою|твоя|твоей|твоем)\s+(мать|мамк|мамаш)',
+        r'(сын|дочь|отродье)\s+(шлюхи|бляди|собаки)',
+    ]
+    for pat in parent_patterns:
+        if re.search(pat, norm):
+            return True, "Упоминание/оскорбление родных"
+
+    insult_patterns = [
+        r'\b(шлюх|блядин|уебищ|уёбищ|хуесос|пидорас|пидар|гандон|мразь|тварь)\w*',
+        r'(пошел|пошёл|иди)\s+на\s*хуй',
+        r'\b(долбоеб|долбоёб|даун|ублюдок)\b',
+    ]
+    for pat in insult_patterns:
+        if re.search(pat, norm):
+            return True, "Нецензурная брань / оскорбление игрока"
+
+    return False, ""
+
+
+# ═══════════════════════════════════════════════════════════════
+# 🆘 СИСТЕМА ТИКЕТОВ И ПОДДЕРЖКИ С КНОПКАМИ И АНТИ-АФК
+# ═══════════════════════════════════════════════════════════════
+class TicketAnswerModal(disnake.ui.Modal):
+    def __init__(self, ticket_id: int, ticket: dict):
+        self.ticket_id = ticket_id
+        self.ticket = ticket
+        components = [
+            disnake.ui.TextInput(
+                label=f"Ответ на тикет #{ticket_id}",
+                placeholder="Введите текст решения проблемы для игрока...",
+                custom_id="ticket_ans_text",
+                style=disnake.TextInputStyle.paragraph,
+                min_length=3,
+                max_length=1500,
+            )
+        ]
+        super().__init__(title=f"Ответ на тикет #{ticket_id}", components=components)
+
+    async def callback(self, inter: disnake.ModalInteraction):
+        ans = inter.text_values.get("ticket_ans_text", "").strip()
+        is_abuse, abuse_reason = detect_staff_abuse(ans)
+        if is_abuse:
+            return await inter.response.send_message(
+                f"⛔️ **Ответ заблокирован ИИ-супервайзером!**\nОбнаружено нарушение: *{abuse_reason}*.\nСоблюдайте правила общения!",
+                ephemeral=True
+            )
+        await db.answer_support_ticket(self.ticket_id, inter.author.id, inter.author.display_name, ans)
+
+        # Отправляем ответ игроку в ЛС
+        raw_uid = self.ticket.get("user_id", 0)
+        u_discord_id = raw_uid - config.DISCORD_UID_OFFSET if raw_uid >= config.DISCORD_UID_OFFSET else raw_uid
+        try:
+            target_user = await bot.fetch_user(u_discord_id)
+            if target_user:
+                u_embed = disnake.Embed(
+                    title=f"📩 Ответ от техподдержки MOXXI (Тикет #{self.ticket_id})",
+                    description=(
+                        f"📝 **Ваше обращение:**\n*{self.ticket.get('text', '')}*\n\n"
+                        f"👨‍💻 **Ответ администрации ({inter.author.display_name}):**\n"
+                        f"{ans}\n\n"
+                        f"🔒 *Тикет успешно закрыт. Если возникнет новый вопрос: `тикет [вопрос]`*"
+                    ),
+                    color=disnake.Color.green()
+                )
+                await target_user.send(embed=u_embed)
+        except Exception as e:
+            log.warning("Не удалось отправить ЛС автору тикета: %s", e)
+
+        if inter.message:
+            try:
+                cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{self.ticket_id}")
+                cl_embed.color = disnake.Color.green()
+                cl_embed.add_field(name="✅ Закрыт", value=f"Ответил: {inter.author.mention}", inline=False)
+                await inter.message.edit(embed=cl_embed, view=None)
+            except Exception:
+                pass
+        await inter.response.send_message(f"✅ Ответ по тикету #{self.ticket_id} успешно доставлен пользователю!", ephemeral=True)
+
+
+class DiscordTicketView(disnake.ui.View):
+    def __init__(self, ticket_id: int, claimed_by: int = 0, claimed_name: str = ""):
+        super().__init__(timeout=None)
+        self.ticket_id = ticket_id
+        self.claimed_by = claimed_by
+        self.claimed_name = claimed_name
+        self._build_buttons()
+
+    def _build_buttons(self):
+        self.clear_items()
+        if not self.claimed_by:
+            self.add_item(disnake.ui.Button(
+                label="💬 Взять в работу / Ответить",
+                style=disnake.ButtonStyle.success,
+                custom_id=f"dc_t_claim:{self.ticket_id}",
+                emoji="✋"
+            ))
+            self.add_item(disnake.ui.Button(
+                label="⛔️ Быстрый отказ",
+                style=disnake.ButtonStyle.danger,
+                custom_id=f"dc_t_reject:{self.ticket_id}",
+                emoji="🚫"
+            ))
+        else:
+            self.add_item(disnake.ui.Button(
+                label=f"🔒 Занят: {self.claimed_name}",
+                style=disnake.ButtonStyle.secondary,
+                custom_id=f"dc_t_busy:{self.ticket_id}",
+                disabled=True
+            ))
+            self.add_item(disnake.ui.Button(
+                label="✍️ Ответить игроку",
+                style=disnake.ButtonStyle.primary,
+                custom_id=f"dc_t_answer:{self.ticket_id}",
+                emoji="📩"
+            ))
+            self.add_item(disnake.ui.Button(
+                label="🔄 Сложная ситуация / Освободить",
+                style=disnake.ButtonStyle.secondary,
+                custom_id=f"dc_t_release:{self.ticket_id}",
+                emoji="↩️"
+            ))
+            self.add_item(disnake.ui.Button(
+                label="⛔️ Отказать",
+                style=disnake.ButtonStyle.danger,
+                custom_id=f"dc_t_reject:{self.ticket_id}",
+                emoji="🚫"
+            ))
+
+
+async def anti_afk_ticket_watcher():
+    """Фоновый страж: если тикет занят стаффом более 1 часа без ответа, возвращает в общий пул"""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            stale_tickets = await db.get_stale_claimed_tickets(timeout_sec=3600)
+            for t in stale_tickets:
+                tid = t["id"]
+                c_name = t.get("claimed_name") or "Сотрудник"
+                await db.release_support_ticket(tid)
+                log.info("Тикет #%d возвращён в общий пул (1 час анти-АФК таймаут стаффа %s)", tid, c_name)
+        except Exception as e:
+            log.warning("anti_afk_ticket_watcher error: %s", e)
+        await asyncio.sleep(60.0)
+
 @bot.event
 async def on_ready():
     log.info("Бот MOXXI Discord успешно вошел как: %s (ID: %d)", bot.user, bot.user.id)
     bot.add_view(MainMenuView())
     bot.add_view(HelpView())
     asyncio.create_task(keep_alive_pulse())
+    asyncio.create_task(anti_afk_ticket_watcher())
     await bot.change_presence(
         activity=disnake.Activity(
             type=disnake.ActivityType.playing,
-            name="MOXXI 3.0 | !команды • 414+ команд"
+            name="MOXXI 3.0 | команды • 414+ команд"
         )
     )
 
@@ -514,16 +840,11 @@ async def on_message(message: disnake.Message):
     if not clean_txt:
         return
 
-    # Проверка префикса
-    has_prefix = False
-    for pfx in config.PREFIXES:
+    # Опциональное снятие префикса (!, m!, ., /) если пользователь его написал
+    for pfx in ("!", "m!", ".", "/"):
         if clean_txt.startswith(pfx):
             clean_txt = clean_txt[len(pfx):].strip()
-            has_prefix = True
             break
-
-    if not has_prefix and not bot.user.mentioned_in(message):
-        return
 
     if bot.user.mentioned_in(message):
         clean_txt = clean_txt.replace(bot.user.mention, "").strip()
@@ -531,8 +852,20 @@ async def on_message(message: disnake.Message):
     parts = clean_txt.split()
     if not parts:
         return
-    cmd = parts[0].lower()
-    args = clean_txt[len(parts[0]):].strip()
+
+    raw_first = parts[0].lower()
+    raw_two = f"{parts[0]} {parts[1]}".lower() if len(parts) >= 2 else ""
+
+    if raw_two in TWO_WORD_CMDS:
+        cmd = raw_two
+        args = clean_txt[len(parts[0]) + 1 + len(parts[1]):].strip()
+    else:
+        cmd = raw_first
+        args = clean_txt[len(parts[0]):].strip()
+
+    # Если сообщение не является зарегистрированной командой бота — игнорируем
+    if cmd not in KNOWN_COMMANDS:
+        return
 
     db_uid = config.DISCORD_UID_OFFSET + message.author.id
     db_cid = config.DISCORD_UID_OFFSET + (message.guild.id if message.guild else message.channel.id)
@@ -1094,6 +1427,495 @@ async def on_message(message: disnake.Message):
         )
         await message.reply(embed=embed, view=view)
         return
+
+
+
+    # ═══════════════════════════════════════════════════════════
+    # 17. 👑 СИСТЕМА РАНГОВ И СОСТАВ АДМИНИСТРАЦИИ (1–10)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("ранг", "мой ранг", "мой_ранг", "мойранг", "rank"):
+        target = await extract_target_discord_member(message, args) or message.author
+        if not message.guild:
+            t_rank = u_data.get("rank", 1)
+            t_title = RANK_NAMES.get(t_rank, "Участник")
+            t_icon = RANK_ICONS.get(t_rank, "👤")
+            return await message.reply(f"{t_icon} Ваш глобальный ранг: **[{t_rank}] {t_title}**")
+
+        t_rank = await get_effective_rank(message.guild.id, target)
+        t_title = RANK_NAMES.get(t_rank, "Участник")
+        t_icon = RANK_ICONS.get(t_rank, "👤")
+
+        native_r = get_discord_native_rank(target) if isinstance(target, disnake.Member) else 0
+        if target.id == message.guild.owner_id:
+            src = "👑 Владелец сервера Discord"
+        elif native_r >= 9:
+            src = "🛡 Права Администратора Discord"
+        elif native_r > 0:
+            src = "⚙️ Права модератора сервера Discord"
+        elif t_rank > 0:
+            src = "🎖 Назначен администрацией в боте"
+        else:
+            src = "👤 Обычный участник"
+
+        embed = disnake.Embed(
+            title=f"{t_icon} РАНГ УЧАСТНИКА · MOXXI",
+            description=(
+                f"👤 **Пользователь:** {target.mention}\n"
+                f"🎖 **Ступень:** `[{t_rank}/10]` **{t_title}** {t_icon}\n"
+                f"📌 **Источник прав:** *{src}*\n\n"
+                f"💡 *Справка по рангам: `состав` или `команды`*"
+            ),
+            color=disnake.Color.from_rgb(155, 89, 182)
+        )
+        if target.avatar:
+            embed.set_thumbnail(url=target.avatar.url)
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("состав", "стафф", "админы", "модераторы", "staff", "admins", "сетка"):
+        if not message.guild:
+            return await message.reply("❌ Состав администрации доступен только на сервере!")
+
+        staff_by_rank = {r: [] for r in range(10, 0, -1)}
+        seen_uids = set()
+
+        # 1. Владелец сервера
+        owner_id = message.guild.owner_id
+        if owner_id:
+            owner_m = message.guild.get_member(owner_id)
+            owner_tag = owner_m.mention if owner_m else f"<@{owner_id}>"
+            staff_by_rank[10].append(owner_tag)
+            seen_uids.add(owner_id)
+
+        # 2. Нативные права в Discord
+        for mem in message.guild.members:
+            if mem.bot or mem.id in seen_uids:
+                continue
+            nr = get_discord_native_rank(mem)
+            if nr > 0:
+                staff_by_rank[nr].append(mem.mention)
+                seen_uids.add(mem.id)
+
+        # 3. Назначенные модераторы из базы данных бота
+        staff_rows = await db.get_chat_staff_list(db_cid)
+        for sr in staff_rows:
+            raw_uid = sr["user_id"] - config.DISCORD_UID_OFFSET
+            if raw_uid not in seen_uids:
+                rnk = sr["rank"]
+                if 1 <= rnk <= 10:
+                    staff_by_rank[rnk].append(f"<@{raw_uid}>")
+                    seen_uids.add(raw_uid)
+
+        embed = disnake.Embed(
+            title="👥 СОСТАВ АДМИНИСТРАЦИИ СЕРВЕРА 👥",
+            color=disnake.Color.from_rgb(155, 89, 182)
+        )
+        total_staff = sum(len(v) for v in staff_by_rank.values())
+        if total_staff == 0:
+            embed.description = "В этом сервере пока нет назначенных модераторов."
+        else:
+            for r in range(10, 0, -1):
+                m_list = staff_by_rank[r]
+                if m_list:
+                    icon = RANK_ICONS.get(r, "⭐")
+                    title = RANK_NAMES.get(r, f"Ранг {r}")
+                    embed.add_field(
+                        name=f"{icon} [{r}] {title} ({len(m_list)})",
+                        value="\n".join([f"• {m}" for m in m_list]),
+                        inline=False
+                    )
+        embed.set_footer(text=f"📊 Всего сотрудников: {total_staff} • Настройка: повысить/понизить/@юзер")
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("повысить", "+ранг", "ранг+", "up"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Повышать участников могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("❌ Укажите пользователя через `@упоминание` или ответом на сообщение!")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете повысить пользователя с рангом `[{target_rank}]`, равным или выше вашего (`[{sender_rank}]`)!")
+        if target_rank + 1 >= sender_rank and sender_rank < 10:
+            return await message.reply(f"⛔️ Вы не можете повысить пользователя до своего ранга `[{sender_rank}]`!")
+        if target_rank >= 10:
+            return await message.reply("⚠️ У пользователя уже максимальный ранг (10 - Владелец)!")
+
+        new_rank = target_rank + 1
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, new_rank, granted_by=db_uid)
+        icon = RANK_ICONS[new_rank]
+        title = RANK_NAMES[new_rank]
+        await message.reply(f"🎉 **{target.mention}** повышен(а) до ранга **[{new_rank}] {title} {icon}**!\n👨‍💻 Назначил: {message.author.mention}")
+        return
+
+    elif cmd in ("понизить", "-ранг", "ранг-", "down"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Понижать участников могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("❌ Укажите пользователя через `@упоминание` или ответом на сообщение!")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете понизить пользователя с рангом `[{target_rank}]`, равным или выше вашего (`[{sender_rank}]`)!")
+        if target_rank <= 0:
+            return await message.reply("⚠️ У пользователя уже минимальный ранг `[0]` (Участник)!")
+
+        new_rank = target_rank - 1
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, new_rank, granted_by=db_uid)
+        icon = RANK_ICONS[new_rank]
+        title = RANK_NAMES[new_rank]
+        await message.reply(f"🔻 **{target.mention}** понижен(а) до ранга **[{new_rank}] {title} {icon}**!\n👨‍💻 Изменил: {message.author.mention}")
+        return
+
+    elif cmd in ("назначить", "setrank"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Назначать ранги могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("💡 Формат: `назначить @юзер [1-10]`")
+
+        clean_args = re.sub(r"<@!?\d+>", "", args).strip()
+        num_m = re.search(r"\b(\d+)\b", clean_args)
+        if not num_m:
+            return await message.reply("⚠️ Укажите ступень ранга от 0 до 10! Пример: `назначить @юзер 3`")
+        req_rank = int(num_m.group(1))
+        if req_rank < 0 or req_rank > 10:
+            return await message.reply("⚠️ Номер ранга должен быть от 0 до 10!")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете изменять ранг равного или старшего по должности (`[{target_rank}]`)!")
+        if req_rank >= sender_rank and sender_rank < 10:
+            return await message.reply(f"⛔️ Вы можете назначать ранги строго ниже своего (максимум `[{sender_rank - 1}]`)!")
+
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, req_rank, granted_by=db_uid)
+        icon = RANK_ICONS[req_rank]
+        title = RANK_NAMES[req_rank]
+        await message.reply(f"✅ Пользователю **{target.mention}** установлен ранг: **[{req_rank}] {title} {icon}**!\n👨‍💻 Назначил: {message.author.mention}")
+        return
+
+    elif cmd in ("снять", "разжаловать", "демоут"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Снимать с должности могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("❌ Укажите пользователя через `@упоминание` или ответом на сообщение!")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете снять пользователя равного или старшего по рангу (`[{target_rank}]`)!")
+
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, 0, granted_by=db_uid)
+        await message.reply(f"🚫 **{target.mention}** снят(а) со всех должностей администрации сервера.\n👨‍💻 Снял: {message.author.mention}")
+        return
+
+    elif cmd in RANK_PROMOTIONS:
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        req_rank = RANK_PROMOTIONS[cmd]
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+
+        if sender_rank <= req_rank and sender_rank < 10:
+            return await message.reply(f"⛔️ Чтобы назначить на ступень `[{req_rank}] {RANK_NAMES[req_rank]}`, ваш ранг должен быть выше `[{req_rank}]`!")
+        if sender_rank < 2:
+            return await message.reply("⛔️ Назначать на должности могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply(f"💡 Формат: `{cmd} @юзер`")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете изменять должность равного или старшего администратора (`[{target_rank}]`)!")
+
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, req_rank, granted_by=db_uid)
+        icon = RANK_ICONS[req_rank]
+        title = RANK_NAMES[req_rank]
+        await message.reply(f"👑 **{target.mention}** назначен(а) на должность **[{req_rank}] {title} {icon}**!\n👨‍💻 Назначил: {message.author.mention}")
+        return
+
+    elif cmd in RANK_DEMOTIONS:
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Снимать с должностей могут сотрудники от **[2] Младший модератор**!")
+
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply(f"💡 Формат: `{cmd} @юзер`")
+
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if sender_rank <= target_rank:
+            return await message.reply(f"⛔️ Вы не можете снять должность равного или старшего по рангу (`[{target_rank}]`)!")
+
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.set_user_rank(db_cid, t_db_uid, 0, granted_by=db_uid)
+        await message.reply(f"🚫 С пользователя **{target.mention}** успешно снята должность `{cmd.lstrip('-')}`!\n👨‍💻 Снял: {message.author.mention}")
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 18. 🛡 МОДЕРАЦИЯ ЧАТА
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("кик", "kick"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Кикать могут сотрудники от **[2] Младший модератор**!")
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("Формат: `кик @юзер [причина]`")
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if target_rank >= sender_rank:
+            return await message.reply(f"⛔️ Иммунитет! Ранг цели `[{target_rank}]` равен или выше вашего `[{sender_rank}]`!")
+        reason = re.sub(r"<@!?\d+>", "", args).strip() or "Нарушение правил"
+        try:
+            if isinstance(target, disnake.Member):
+                await target.kick(reason=reason)
+                await message.reply(f"👢 **{target.mention}** исключён с сервера!\n📝 Причина: *{reason}* | Модератор: {message.author.mention}")
+            else:
+                await message.reply("❌ Пользователь не находится на сервере.")
+        except Exception as e:
+            await message.reply(f"❌ Ошибка Discord API при кике: {e}")
+        return
+
+    elif cmd in ("бан", "ban"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 6:
+            return await message.reply("⛔️ Банить могут сотрудники от **[6] Старший админ**!")
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("Формат: `бан @юзер [причина]`")
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if target_rank >= sender_rank:
+            return await message.reply(f"⛔️ Иммунитет! Ранг цели `[{target_rank}]` равен или выше вашего `[{sender_rank}]`!")
+        reason = re.sub(r"<@!?\d+>", "", args).strip() or "Грубое нарушение правил"
+        try:
+            await message.guild.ban(target, reason=reason)
+            await message.reply(f"🔨 **{target.mention}** забанен на сервере!\n📝 Причина: *{reason}* | Админ: {message.author.mention}")
+        except Exception as e:
+            await message.reply(f"❌ Ошибка Discord API при бане: {e}")
+        return
+
+    elif cmd in ("варн", "warn"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 1:
+            return await message.reply("⛔️ Выдавать предупреждения могут сотрудники от **[1] Стажёр**!")
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("Формат: `варн @юзер [причина]`")
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if target_rank >= sender_rank:
+            return await message.reply(f"⛔️ Иммунитет! Ранг цели `[{target_rank}]` равен или выше вашего `[{sender_rank}]`!")
+        reason = re.sub(r"<@!?\d+>", "", args).strip() or "Нарушение порядка"
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        w_c = await db.add_warn(db_cid, t_db_uid, db_uid, reason)
+        if w_c >= 3:
+            try:
+                if isinstance(target, disnake.Member):
+                    await target.kick(reason="Превышен лимит предупреждений (3/3 варнов)")
+                    return await message.reply(f"⚠️ **{target.mention}** получил(а) 3-й варн и был **исключён(а)** с сервера!")
+            except Exception:
+                pass
+        await message.reply(f"⚠️ **{target.mention}** получил(а) предупреждение `[{w_c}/3]`!\n📝 Причина: *{reason}* | Выдал: {message.author.mention}")
+        return
+
+    elif cmd in ("варны", "warns"):
+        target = await extract_target_discord_member(message, args) or message.author
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        warn_list = await db.get_user_warns(db_cid, t_db_uid)
+        if not warn_list:
+            return await message.reply(f"🕊 У пользователя **{target.mention}** нет активных предупреждений.")
+        lines = [f"⚠️ **Предупреждения {target.mention} ({len(warn_list)}/3):**"]
+        for idx, w in enumerate(warn_list, 1):
+            lines.append(f"{idx}. {w.get('reason', 'Без причины')} (ID: {w.get('id')})")
+        await message.reply("\n".join(lines))
+        return
+
+    elif cmd in ("снятьварн", "снять варн", "unwarn"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Снимать предупреждения могут сотрудники от **[2] Младший модератор**!")
+        target = await extract_target_discord_member(message, args)
+        if not target:
+            return await message.reply("Формат: `снятьварн @юзер`")
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        await db.remove_last_warn(db_cid, t_db_uid)
+        await message.reply(f"✅ Одно предупреждение снято с пользователя **{target.mention}**.\n👨‍💻 Модератор: {message.author.mention}")
+        return
+
+    elif cmd in ("мут", "mute"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 1:
+            return await message.reply("⛔️ Мутить участников могут сотрудники от **[1] Стажёр**!")
+        target = await extract_target_discord_member(message, args)
+        if not target or target.id == message.author.id:
+            return await message.reply("Формат: `мут @юзер [минут] [причина]`")
+        target_rank = await get_effective_rank(message.guild.id, target)
+        if target_rank >= sender_rank:
+            return await message.reply(f"⛔️ Иммунитет! Ранг цели `[{target_rank}]` равен или выше вашего `[{sender_rank}]`!")
+        clean_args = re.sub(r"<@!?\d+>", "", args).strip()
+        num_m = re.search(r"\b(\d+)\b", clean_args)
+        minutes = int(num_m.group(1)) if num_m else 10
+        reason = re.sub(r"\b\d+\b", "", clean_args).strip() or "Флуд / Спам"
+        try:
+            if isinstance(target, disnake.Member):
+                until = disnake.utils.utcnow() + datetime.timedelta(minutes=minutes)
+                await target.timeout(until=until, reason=reason)
+                await message.reply(f"🔇 **{target.mention}** отправлен(а) подумать на **{minutes} мин.**!\n📝 Причина: *{reason}* | Модератор: {message.author.mention}")
+            else:
+                await message.reply("❌ Пользователь не на сервере.")
+        except Exception as e:
+            await message.reply(f"❌ Ошибка таймаута Discord: {e}")
+        return
+
+    elif cmd in ("размут", "unmute"):
+        if not message.guild:
+            return await message.reply("❌ Команда доступна только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 1:
+            return await message.reply("⛔️ Размучивать могут сотрудники от **[1] Стажёр**!")
+        target = await extract_target_discord_member(message, args)
+        if not target:
+            return await message.reply("Формат: `размут @юзер`")
+        try:
+            if isinstance(target, disnake.Member):
+                await target.timeout(until=None, reason="Размут модератором")
+                await message.reply(f"🔊 С пользователя **{target.mention}** сняты ограничения на общение!\n👨‍💻 Модератор: {message.author.mention}")
+            else:
+                await message.reply("❌ Пользователь не на сервере.")
+        except Exception as e:
+            await message.reply(f"❌ Ошибка снятия таймаута: {e}")
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 19. 🆘 СЛУЖБА ПОДДЕРЖКИ И ТИКЕТЫ
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("поддержка", "тикет", "support", "ticket"):
+        if not args:
+            return await message.reply("💡 Напишите: `тикет [описание вашей проблемы или вопроса]`")
+
+        # Создаем тикет в БД
+        tid = await db.create_support_ticket(
+            user_id=db_uid,
+            user_name=str(message.author),
+            text=args[:1000],
+            status="open",
+            platform="discord",
+            platform_peer_id=message.channel.id
+        )
+
+        embed = disnake.Embed(
+            title=f"🆘 НОВОЕ ОБРАЩЕНИЕ В ТЕХПОДДЕРЖКУ #{tid}",
+            description=(
+                f"👤 **От:** {message.author.mention} (`{message.author.id}`)\n"
+                f"📝 **Проблема:**\n«{args[:1000]}»\n\n"
+                f"⏳ **Статус:** 🟢 Открыт (Ожидает стаффа)"
+            ),
+            color=disnake.Color.gold()
+        )
+        t_view = DiscordTicketView(ticket_id=tid)
+        await message.channel.send(embed=embed, view=t_view)
+        await message.reply(f"✅ Ваше обращение принято (Тикет `#{tid}`)! Сотрудники администрации скоро ответят.")
+        return
+
+
+
+@bot.event
+async def on_button_click(inter: disnake.MessageInteraction):
+    cid = inter.component.custom_id
+    if not cid or not cid.startswith("dc_t_"):
+        return
+
+    # Parse dc_t_action:ticket_id
+    parts = cid.split(":", 1)
+    act = parts[0]
+    tid = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+    if not tid:
+        return
+
+    ticket = await db.get_support_ticket(tid)
+    if not ticket:
+        return await inter.response.send_message("❌ Тикет не найден в базе!", ephemeral=True)
+
+    sender_rank = await get_effective_rank(inter.guild.id, inter.author) if inter.guild else 1
+    if sender_rank < 1:
+        return await inter.response.send_message("⛔️ Доступно только администрации сервера!", ephemeral=True)
+
+    if act == "dc_t_claim":
+        c_by = ticket.get("claimed_by", 0)
+        if c_by and c_by != inter.author.id:
+            c_name = ticket.get("claimed_name") or "другим сотрудником"
+            return await inter.response.send_message(f"🔒 Этот тикет уже занят сотрудником: {c_name}!", ephemeral=True)
+        await db.claim_support_ticket(tid, inter.author.id, inter.author.display_name)
+        new_view = DiscordTicketView(ticket_id=tid, claimed_by=inter.author.id, claimed_name=inter.author.display_name)
+        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+        cl_embed.color = disnake.Color.orange()
+        cl_embed.set_footer(text=f"🔒 Взят в работу: {inter.author.display_name}")
+        await inter.response.edit_message(embed=cl_embed, view=new_view)
+
+    elif act == "dc_t_release":
+        c_by = ticket.get("claimed_by", 0)
+        is_owner = (inter.guild and inter.guild.owner_id == inter.author.id) or sender_rank >= 9
+        if c_by and c_by != inter.author.id and not is_owner:
+            return await inter.response.send_message("❌ Освободить тикет может только тот сотрудник, кто его взял!", ephemeral=True)
+        await db.release_support_ticket(tid)
+        new_view = DiscordTicketView(ticket_id=tid, claimed_by=0)
+        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+        cl_embed.color = disnake.Color.gold()
+        cl_embed.set_footer(text="🔄 Освобождён в общий пул (сложная ситуация)")
+        await inter.response.edit_message(embed=cl_embed, view=new_view)
+        await inter.channel.send(f"🔄 Тикет **#{tid}** освобождён сотрудником {inter.author.mention} и возвращён в общий пул!")
+
+    elif act == "dc_t_answer":
+        c_by = ticket.get("claimed_by", 0)
+        if c_by and c_by != inter.author.id:
+            c_name = ticket.get("claimed_name") or "другой сотрудник"
+            return await inter.response.send_message(f"❌ Тикет занят: {c_name}!", ephemeral=True)
+        await inter.response.send_modal(TicketAnswerModal(ticket_id=tid, ticket=ticket))
+
+    elif act == "dc_t_reject":
+        c_by = ticket.get("claimed_by", 0)
+        if c_by and c_by != inter.author.id and sender_rank < 9:
+            return await inter.response.send_message("❌ Отклонить чужой тикет может только старший администратор!", ephemeral=True)
+        await db.close_support_ticket(tid, reason="Отклонено администратором")
+        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+        cl_embed.color = disnake.Color.red()
+        cl_embed.add_field(name="⛔️ Отклонён", value=f"Модератор: {inter.author.mention}", inline=False)
+        await inter.response.edit_message(embed=cl_embed, view=None)
 
 
 async def main():

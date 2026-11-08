@@ -88,6 +88,11 @@ async def init() -> None:
                 created_at INTEGER NOT NULL
             )
         """)
+        for col, col_def in [("claimed_by", "INTEGER DEFAULT 0"), ("claimed_name", "TEXT DEFAULT ''"), ("claimed_at", "INTEGER DEFAULT 0")]:
+            try:
+                await _conn.execute(f"ALTER TABLE support_tickets ADD COLUMN {col} {col_def}")
+            except Exception:
+                pass
         await _conn.commit()
 
 async def close() -> None:
@@ -791,6 +796,83 @@ async def create_support_ticket(user_id: int, user_name: str, text: str, status:
     ) as cur:
         await conn().commit()
         return int(cur.lastrowid)
+
+async def get_support_ticket(ticket_id: int) -> dict | None:
+    async with conn().execute("SELECT * FROM support_tickets WHERE id = ?", (ticket_id,)) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def claim_support_ticket(ticket_id: int, staff_id: int, staff_name: str) -> bool:
+    now = int(time.time())
+    async with conn().execute(
+        """UPDATE support_tickets
+           SET status = 'claimed', claimed_by = ?, claimed_name = ?, claimed_at = ?
+           WHERE id = ? AND status IN ('open', 'claimed')""",
+        (staff_id, staff_name, now, ticket_id)
+    ) as cur:
+        await conn().commit()
+        return cur.rowcount > 0
+
+async def release_support_ticket(ticket_id: int) -> bool:
+    async with conn().execute(
+        """UPDATE support_tickets
+           SET status = 'open', claimed_by = 0, claimed_name = '', claimed_at = 0
+           WHERE id = ?""",
+        (ticket_id,)
+    ) as cur:
+        await conn().commit()
+        return cur.rowcount > 0
+
+async def answer_support_ticket(ticket_id: int, staff_id: int, staff_name: str, answer_text: str) -> bool:
+    now = int(time.time())
+    async with conn().execute(
+        """UPDATE support_tickets
+           SET status = 'closed', answered_by = ?, answered_name = ?, answer_text = ?, answered_at = ?
+           WHERE id = ?""",
+        (staff_id, staff_name, answer_text, now, ticket_id)
+    ) as cur:
+        await conn().commit()
+        return cur.rowcount > 0
+
+async def close_support_ticket(ticket_id: int, reason: str = "") -> bool:
+    now = int(time.time())
+    async with conn().execute(
+        """UPDATE support_tickets
+           SET status = 'closed', answer_text = ?, answered_at = ?
+           WHERE id = ?""",
+        (reason, now, ticket_id)
+    ) as cur:
+        await conn().commit()
+        return cur.rowcount > 0
+
+async def get_stale_claimed_tickets(timeout_sec: int = 3600) -> list[dict]:
+    threshold = int(time.time()) - timeout_sec
+    async with conn().execute(
+        "SELECT * FROM support_tickets WHERE status = 'claimed' AND claimed_at > 0 AND claimed_at < ?",
+        (threshold,)
+    ) as cur:
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+async def get_user_warns(chat_id: int, user_id: int) -> list[dict]:
+    async with conn().execute(
+        "SELECT id, reason, admin_id, ts FROM warns WHERE chat_id = ? AND user_id = ? ORDER BY ts ASC",
+        (chat_id, user_id)
+    ) as cur:
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+async def remove_last_warn(chat_id: int, user_id: int) -> bool:
+    async with conn().execute(
+        "SELECT id FROM warns WHERE chat_id = ? AND user_id = ? ORDER BY ts DESC LIMIT 1",
+        (chat_id, user_id)
+    ) as cur:
+        row = await cur.fetchone()
+        if row:
+            await conn().execute("DELETE FROM warns WHERE id = ?", (row["id"],))
+            await conn().commit()
+            return True
+    return False
 
 async def fetchall(query: str, params: tuple = ()) -> list[dict]:
     async with conn().execute(query, params) as cur:
