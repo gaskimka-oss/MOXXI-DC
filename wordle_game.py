@@ -1,4 +1,4 @@
-"""Wordle (Вордл) Mini-Game Engine for MOXXI Discord Bot.
+"""MOXXI Wordle (Вордл) — Словесная мини-игра из 5 букв.
 Allows users to guess 5-letter Russian words with colored emojis:
 🟩 - правильная буква на своём месте
 🟨 - буква есть в слове, но на другой позиции

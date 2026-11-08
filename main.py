@@ -603,16 +603,16 @@ KNOWN_COMMANDS = {
     "снятьварн", "снять варн", "unwarn", "мут", "mute", "размут", "unmute",
     # 6. Поддержка и тикеты
     "поддержка", "тикет", "support", "ticket", "панель_тикетов", "панель тикетов", "вордл", "wordle",
-    # 7. Black-Minecraft (#8989) & Minecraft Suite
+    # 7. МОДУЛЬ MINECRAFT
     "сервер", "пинг", "mc", "скин", "skin", "голова", "head",
     "привязать_ник", "привязать ник", "ник_мс", "панель_верификации", "панель верификации", "верификация",
-    # 8. GiveawayBot (Розыгрыши)
+    # 8. МОДУЛЬ РОЗЫГРЫШЕЙ
     "розыгрыш", "giveaway", "конкурс",
-    # 9. MEE6 / Arcane (Уровни и активность)
+    # 9. МОДУЛЬ УРОВНЕЙ И XP
     "уровень", "лвл", "топ_уровень", "топ_лвл", "топ уровень", "топ лвл", "levels",
-    # 10. Carl-bot / Dyno (Чистка и сервер)
+    # 10. МОДУЛЬ МОДЕРАЦИИ И АУДИТА
     "очистить", "clear", "purge", "сервер_инфо", "сервер инфо", "юзер_инфо", "юзер инфо",
-    # 11. Dank Memer / UnbelievaBoat (Работа, Попрошайничество, Криминал, Магазин)
+    # 11. МОДУЛЬ ЭКОНОМИКИ И КАРЬЕРЫ
     "работа", "работать", "work", "смена",
     "попрошайничать", "бомжевать", "beg",
     "криминал", "crime",
@@ -979,7 +979,7 @@ async def on_message(message: disnake.Message):
     await db.ensure_user(db_uid, username=str(message.author), first_name=message.author.display_name)
     u_data = await db.get_user(db_uid) or {}
 
-    # Начисление XP за сообщения в чате (MEE6 / Arcane система)
+    # Начисление XP за активность в чате
     now_ts = time.time()
     if now_ts - _user_xp_cd.get(message.author.id, 0) >= 45.0:
         _user_xp_cd[message.author.id] = now_ts
@@ -1978,11 +1978,22 @@ async def on_message(message: disnake.Message):
 
 
     # ═══════════════════════════════════════════════════════════
-    # 20. 🎮 BLACK-MINECRAFT.COM (#8989) SUITE
+    # 20. 🎮 MINECRAFT SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("сервер", "пинг", "mc", "пинг сервера"):
         if not args:
-            return await message.reply("💡 Укажите IP сервера! Пример: `сервер mc.hypixel.net` или `сервер play.funtime.su`")
+            embed = disnake.Embed(
+                title="⛏ Мониторинг серверов Minecraft",
+                description=(
+                    "Чтобы узнать статус и онлайн сервера, укажите его IP-адрес:\n\n"
+                    "📌 **Как пользоваться командой:**\n"
+                    "• `сервер адрес_сервера` или `пинг адрес_сервера`\n"
+                    "• или слэш-команда: `/сервер ip:адрес_сервера`\n\n"
+                    "🔍 *Пример:* `сервер play.myserver.ru` или `сервер 127.0.0.1:25565`"
+                ),
+                color=disnake.Color.blurple()
+            )
+            return await message.reply(embed=embed)
         status_msg = await message.reply("🔍 Опрашиваю сервер Minecraft...")
         srv_ip = args.strip()
         try:
@@ -2016,13 +2027,24 @@ async def on_message(message: disnake.Message):
         embed.add_field(name="👥 Игроки онлайн", value=f"`{on_p:,} / {max_p:,}`", inline=True)
         embed.add_field(name="⚙️ Версия", value=f"`{ver}`", inline=True)
         embed.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{srv_ip}")
-        embed.set_footer(text="MOXXI x Black-Minecraft Edition #8989")
+        embed.set_footer(text="MOXXI Minecraft Module")
         await status_msg.edit(content=None, embed=embed)
         return
 
     elif cmd in ("скин", "skin"):
         if not args:
-            return await message.reply("💡 Укажите ник игрока Minecraft! Пример: `скин Notch`")
+            embed = disnake.Embed(
+                title="👕 Просмотр 3D скинов Minecraft",
+                description=(
+                    "Чтобы посмотреть 3D скин игрока, укажите его никнейм:\n\n"
+                    "📌 **Как пользоваться командой:**\n"
+                    "• `скин никнейм`\n"
+                    "• или слэш-команда: `/скин ник:никнейм`\n\n"
+                    "🔍 *Пример:* `скин Steve`"
+                ),
+                color=disnake.Color.blurple()
+            )
+            return await message.reply(embed=embed)
         nick = args.strip().split()[0]
         embed = disnake.Embed(
             title=f"👕 3D СКИН ИГРОКА: {nick}",
@@ -2088,7 +2110,7 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 21. 🎉 GIVEAWAYBOT SUITE (АВТОМАТИЧЕСКИЕ РОЗЫГРЫШИ)
+    # 21. 🎉 GIVEAWAYS SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("розыгрыш", "giveaway", "конкурс"):
         if not message.guild:
@@ -2138,7 +2160,7 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 22. 🏆 MEE6 & ARCANE LEVELING SUITE (УРОВНИ И ТОПЫ)
+    # 22. 🏆 LEVELING & XP SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("уровень", "лвл"):
         target = await extract_target_discord_member(message, args) or message.author
@@ -2168,7 +2190,7 @@ async def on_message(message: disnake.Message):
 
     elif cmd in ("топ_уровень", "топ_лвл", "топ уровень", "топ лвл", "levels"):
         top_rows = await db.get_top_level(10)
-        lines = ["🏆 **ТОП-10 АКТИВНЫХ УЧАСТНИКОВ СЕРВЕРА (MEE6 / XP)**", "━━━━━━━━━━━━━━━━━━━━"]
+        lines = ["🏆 **ТОП-10 АКТИВНЫХ УЧАСТНИКОВ СЕРВЕРА (XP)**", "━━━━━━━━━━━━━━━━━━━━"]
         medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
         for idx, r in enumerate(top_rows):
             m_id = r["user_id"] - config.DISCORD_UID_OFFSET
@@ -2183,7 +2205,7 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 23. 🛡 CARL-BOT & DYNO SUITE (ЧИСТКА И ИНФОРМАЦИЯ)
+    # 23. 🛡 MODERATION & INFO SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("очистить", "clear", "purge"):
         if not message.guild:
@@ -2254,7 +2276,7 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 24. 💼 DANK MEMER SUITE (РАБОТА, ПОПРОШАЙНИЧЕСТВО, МАГАЗИН)
+    # 24. 💼 ECONOMY & WORK SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("работа", "работать", "work", "смена"):
         now_ts = int(time.time())
@@ -2425,7 +2447,7 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 25. 📩 TICKET TOOL SUITE (ИНТЕРАКТИВНАЯ ПАНЕЛЬ ТИКЕТОВ)
+    # 25. 📩 SUPPORT & TICKET SUITE
     # ═══════════════════════════════════════════════════════════
     elif cmd in ("панель_тикетов", "панель тикетов"):
         if not message.guild:

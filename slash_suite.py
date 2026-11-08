@@ -1,6 +1,6 @@
 """Slash Command Suite for MOXXI Discord Bot.
 Registers native Discord Application Commands so MOXXI appears directly
-in the '/' autocomplete menu alongside other top Discord bots.
+for the MOXXI Discord Bot ecosystem.
 """
 from __future__ import annotations
 
@@ -44,14 +44,14 @@ class SlashSuite(commands.Cog):
             title="🎮 MOXXI 3.0 ULTIMATE DISCORD",
             description=(
                 "Добро пожаловать в центр управления MOXXI!\n\n"
-                "**В бота встроены все ключевые возможности лучших ботов Discord:**\n"
-                "• **Black-Minecraft** — мониторинг серверов, 3D скины, верификация\n"
-                "• **MEE6 & Arcane** — уровни активности в чате, XP, лидерборд\n"
-                "• **GiveawayBot** — розыгрыши с таймерами и кнопками\n"
-                "• **Carl-bot / Dyno** — быстрая модерация и чистка чата\n"
-                "• **Dank Memer** — работа, попрошайничество, криминал, магазин\n"
-                "• **Ticket Tool** — тикеты и интерактивные кнопки техподдержки\n"
-                "• **Wordle** — мини-игра в слова 🟩🟨⬛ прямо в Discord\n\n"
+                "**Все модули и возможности системы:**\n"
+                "• ⛏ **Minecraft Модуль** — мониторинг серверов, 3D скины, верификация\n"
+                "• 🏆 **Уровни и Опыт (XP)** — активность в чате, ранги и лидерборды\n"
+                "• 🎉 **Розыгрыши** — интерактивные конкурсы с таймерами и кнопками\n"
+                "• 🛡 **Модерация и Аудит** — быстрая модерация, варны, муты и чистка чата\n"
+                "• 💼 **Карьера и Экономика** — работа, банк, грабежи, магазин предметов\n"
+                "• 🎫 **Служба Поддержки** — тикеты и персональные обращения\n"
+                "• 🟩 **Словесная Игра (Вордл)** — мини-игра со словами 🟩🟨⬛ с призами\n\n"
                 "💡 *Команды работают как со слэшем (`/команда`), так и просто текстом в чат без слэша!*"
             ),
             color=disnake.Color.blurple()
@@ -134,29 +134,45 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 4. СЕРВЕР MINECRAFT (Black-Minecraft.Com)
+    # 4. СЕРВЕР MINECRAFT
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="сервер", description="⛏ Проверить онлайн и статус сервера Minecraft")
     async def cmd_server(
         self,
         inter: disnake.ApplicationCommandInteraction,
-        ip: str = "mc.hypixel.net"
+        ip: Optional[str] = commands.Param(default=None, description="IP адрес или домен сервера Minecraft (например: play.myserver.ru)")
     ):
+        if not ip:
+            embed = disnake.Embed(
+                title="⛏ Мониторинг серверов Minecraft",
+                description=(
+                    "Чтобы узнать статус и онлайн сервера, укажите его IP-адрес:\n\n"
+                    "📌 **Как пользоваться командой:**\n"
+                    "• **Слэш-команда:** `/сервер ip:адрес_сервера`\n"
+                    "• **Текстом в чат:** `сервер адрес_сервера` или `пинг адрес_сервера`\n\n"
+                    "🔍 *Пример:* `/сервер ip:play.myserver.ru` или `сервер 127.0.0.1:25565`\n\n"
+                    "📊 *Бот в реальном времени покажет онлайн игроков, версию, цветной MOTD и статус сервера.*"
+                ),
+                color=disnake.Color.blurple()
+            )
+            return await inter.response.send_message(embed=embed)
+
         await inter.response.defer()
-        url = f"https://api.mcsrvstat.us/2/{ip}"
+        clean_ip = ip.strip()
+        url = f"https://api.mcsrvstat.us/2/{clean_ip}"
         try:
             async with aiohttp.ClientSession() as s:
                 async with s.get(url, timeout=5.0) as resp:
                     if resp.status != 200:
-                        return await inter.edit_original_response(f"❌ Ошибка получения данных сервера `{ip}`!")
+                        return await inter.edit_original_response(f"❌ Ошибка получения данных сервера `{clean_ip}`!")
                     data = await resp.json()
         except Exception as e:
-            return await inter.edit_original_response(f"❌ Не удалось подключиться к API: {e}")
+            return await inter.edit_original_response(f"❌ Не удалось подключиться к серверу: {e}")
 
         online = data.get("online", False)
         if not online:
             embed = disnake.Embed(
-                title=f"🔴 Сервер Оффлайн — `{ip}`",
+                title=f"🔴 Сервер Оффлайн — `{clean_ip}`",
                 description="Сервер сейчас недоступен или указан неверный адрес.",
                 color=disnake.Color.red()
             )
@@ -170,24 +186,37 @@ class SlashSuite(commands.Cog):
         motd_text = "\n".join(motd_lines) if motd_lines else "Нет описания"
 
         embed = disnake.Embed(
-            title=f"🟢 Статус Minecraft сервера — {ip}",
+            title=f"🟢 Статус Minecraft сервера — {clean_ip}",
             color=disnake.Color.green()
         )
         embed.add_field(name="👥 Онлайн", value=f"**{p_online:,}** / {p_max:,}", inline=True)
         embed.add_field(name="🏷 Версия", value=f"`{version}`", inline=True)
         embed.add_field(name="📜 Описание (MOTD)", value=f"```\n{motd_text}\n```", inline=False)
-        embed.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{ip}")
+        embed.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{clean_ip}")
         await inter.edit_original_response(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 5. СКИН MINECRAFT (Black-Minecraft.Com)
+    # 5. СКИН MINECRAFT
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="скин", description="👕 Показать 3D модель скина игрока Minecraft")
     async def cmd_skin(
         self,
         inter: disnake.ApplicationCommandInteraction,
-        ник: str
+        ник: Optional[str] = commands.Param(default=None, description="Никнейм игрока Minecraft (например: Steve)")
     ):
+        if not ник:
+            embed = disnake.Embed(
+                title="👕 Просмотр 3D скинов Minecraft",
+                description=(
+                    "Чтобы посмотреть 3D скин любого игрока, укажите его никнейм:\n\n"
+                    "📌 **Как пользоваться командой:**\n"
+                    "• **Слэш-команда:** `/скин ник:Steve`\n"
+                    "• **Текстом в чат:** `скин Steve`"
+                ),
+                color=disnake.Color.blurple()
+            )
+            return await inter.response.send_message(embed=embed)
+
         clean_nick = ник.strip()
         skin_url = f"https://mc-heads.net/body/{clean_nick}/right"
         avatar_url = f"https://mc-heads.net/avatar/{clean_nick}"
@@ -201,7 +230,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 6. РАБОТА (Dank Memer)
+    # 6. РАБОТА
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="работа", description="💼 Отработать смену и получить зарплату в монетах")
     async def cmd_work(self, inter: disnake.ApplicationCommandInteraction):
@@ -241,7 +270,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 7. ПОПРОШАЙНИЧАТЬ (Dank Memer)
+    # 7. ПОПРОШАЙНИЧАТЬ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="попрошайничать", description="🪙 Попытать удачу и собрать мелочь на улицах")
     async def cmd_beg(self, inter: disnake.ApplicationCommandInteraction):
@@ -274,7 +303,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 8. КРИМИНАЛ (Dank Memer)
+    # 8. КРИМИНАЛ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="криминал", description="🥷 Совершить дерзкое ограбление с риском для кошелька")
     async def cmd_crime(self, inter: disnake.ApplicationCommandInteraction):
@@ -322,7 +351,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 9. МАГАЗИН ПРЕДМЕТОВ (Dank Memer)
+    # 9. МАГАЗИН ПРЕДМЕТОВ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="магазин", description="🛒 Магазин предметов, сейфов и бустеров опыта")
     async def cmd_shop(self, inter: disnake.ApplicationCommandInteraction):
@@ -417,7 +446,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 12. РОЗЫГРЫШ (GiveawayBot)
+    # 12. РОЗЫГРЫШ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="розыгрыш", description="🎉 Запустить интерактивный розыгрыш призов")
     async def cmd_giveaway(
@@ -463,7 +492,7 @@ class SlashSuite(commands.Cog):
         await db.conn().commit()
 
     # ═══════════════════════════════════════════════════════════════
-    # 13. ОЧИСТИТЬ ЧАТ (Carl-bot / Dyno)
+    # 13. ОЧИСТИТЬ ЧАТ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="очистить", description="🧹 Очистить последние сообщения в канале")
     async def cmd_clear(
@@ -479,7 +508,7 @@ class SlashSuite(commands.Cog):
         await inter.edit_original_response(f"🧹 Успешно удалено **{len(deleted)}** сообщений!")
 
     # ═══════════════════════════════════════════════════════════════
-    # 14. СЕРВЕР ИНФО (Carl-bot / Dyno)
+    # 14. СЕРВЕР ИНФО
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="сервер_инфо", description="📊 Досье и статистика сервера")
     async def cmd_serverinfo(self, inter: disnake.ApplicationCommandInteraction):
@@ -505,7 +534,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 15. ТИКЕТ В ТЕХПОДДЕРЖКУ (Ticket Tool)
+    # 15. ТИКЕТ В ТЕХПОДДЕРЖКУ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="тикет", description="📩 Открыть тикет в службу поддержки сервера")
     async def cmd_ticket(
@@ -538,7 +567,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(f"✅ Ваш тикет **#{tid}** успешно создан и отправлен модераторам!", ephemeral=True)
 
     # ═══════════════════════════════════════════════════════════════
-    # 16. ПАНЕЛЬ ВЕРИФИКАЦИИ (Black-Minecraft.Com)
+    # 16. ПАНЕЛЬ ВЕРИФИКАЦИИ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="панель_верификации", description="🛡 Создать панель верификации с кнопкой")
     async def cmd_verify_panel(
@@ -570,7 +599,7 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message("✅ Панель верификации успешно создана!", ephemeral=True)
 
     # ═══════════════════════════════════════════════════════════════
-    # 17. ПАНЕЛЬ ТИКЕТОВ (Ticket Tool)
+    # 17. ПАНЕЛЬ ТИКЕТОВ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="панель_тикетов", description="🎫 Создать интерактивную панель поддержки")
     async def cmd_ticket_panel(self, inter: disnake.ApplicationCommandInteraction):
