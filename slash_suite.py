@@ -83,6 +83,7 @@ class SlashSuite(commands.Cog):
         inter: disnake.ApplicationCommandInteraction,
         участник: Optional[disnake.Member] = None
     ):
+        await inter.response.defer()
         target = участник or inter.author
         t_uid = config.DISCORD_UID_OFFSET + target.id
         await db.ensure_user(t_uid, username=str(target), first_name=target.display_name)
@@ -124,7 +125,7 @@ class SlashSuite(commands.Cog):
         embed.add_field(name="🛡 Сейф", value=safe_str, inline=True)
         embed.add_field(name="⚡️ Бустер опыта", value=boost_str, inline=True)
 
-        await inter.response.send_message(embed=embed)
+        await inter.edit_original_response(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
     # 3. БАЛАНС
@@ -135,6 +136,7 @@ class SlashSuite(commands.Cog):
         inter: disnake.ApplicationCommandInteraction,
         участник: Optional[disnake.Member] = None
     ):
+        await inter.response.defer()
         target = участник or inter.author
         t_uid = config.DISCORD_UID_OFFSET + target.id
         await db.ensure_user(t_uid, username=str(target), first_name=target.display_name)
@@ -147,7 +149,7 @@ class SlashSuite(commands.Cog):
             description=f"💵 **На руках:** `{bal:,}` 🌑 монет\n🏦 **В банке:** `{bank:,}` 🌑 монет\n📊 **Всего:** `{bal + bank:,}` 🌑",
             color=disnake.Color.green()
         )
-        await inter.response.send_message(embed=embed)
+        await inter.edit_original_response(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
     # 4. СЕРВЕР MINECRAFT

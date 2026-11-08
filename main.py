@@ -45,6 +45,10 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+# Фикс для Windows asyncio: устраняет зависание heartbeat в IOCP
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] (MOXXI-DC) %(message)s"
@@ -2487,73 +2491,109 @@ async def on_message(message: disnake.Message):
 @bot.event
 async def on_button_click(inter: disnake.MessageInteraction):
     cid = inter.component.custom_id
-    if not cid or not cid.startswith("dc_t_"):
+    if not cid:
         return
 
-    # Parse dc_t_action:ticket_id
-    parts = cid.split(":", 1)
-    act = parts[0]
-    tid = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-    if not tid:
-        return
+    # 1. Staff Ticket actions: dc_t_claim, dc_t_release, dc_t_answer, dc_t_reject
+    if cid.startswith("dc_t_"):
+        parts = cid.split(":", 1)
+        act = parts[0]
+        tid = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
+        if not tid:
+            return
 
-    ticket = await db.get_support_ticket(tid)
-    if not ticket:
-        return await inter.response.send_message("❌ Тикет не найден в базе!", ephemeral=True)
+        ticket = await db.get_support_ticket(tid)
+        if not ticket:
+            return await inter.response.send_message("❌ Тикет не найден в базе!", ephemeral=True)
 
-    sender_rank = await get_effective_rank(inter.guild.id, inter.author) if inter.guild else 1
-    if sender_rank < 1:
-        return await inter.response.send_message("⛔️ Доступно только администрации сервера!", ephemeral=True)
+        sender_rank = await get_effective_rank(inter.guild.id, inter.author) if inter.guild else 1
+        if sender_rank < 1:
+            return await inter.response.send_message("⛔️ Доступно только администрации сервера!", ephemeral=True)
 
-    if act == "dc_t_claim":
-        c_by = ticket.get("claimed_by", 0)
-        if c_by and c_by != inter.author.id:
-            c_name = ticket.get("claimed_name") or "другим сотрудником"
-            return await inter.response.send_message(f"🔒 Этот тикет уже занят сотрудником: {c_name}!", ephemeral=True)
-        await db.claim_support_ticket(tid, inter.author.id, inter.author.display_name)
-        new_view = DiscordTicketView(ticket_id=tid, claimed_by=inter.author.id, claimed_name=inter.author.display_name)
-        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
-        cl_embed.color = disnake.Color.orange()
-        cl_embed.set_footer(text=f"🔒 Взят в работу: {inter.author.display_name}")
-        await inter.response.edit_message(embed=cl_embed, view=new_view)
+        if act == "dc_t_claim":
+            c_by = ticket.get("claimed_by", 0)
+            if c_by and c_by != inter.author.id:
+                c_name = ticket.get("claimed_name") or "другим сотрудником"
+                return await inter.response.send_message(f"🔒 Этот тикет уже занят сотрудником: {c_name}!", ephemeral=True)
+            await db.claim_support_ticket(tid, inter.author.id, inter.author.display_name)
+            new_view = DiscordTicketView(ticket_id=tid, claimed_by=inter.author.id, claimed_name=inter.author.display_name)
+            cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+            cl_embed.color = disnake.Color.orange()
+            cl_embed.set_footer(text=f"🔒 Взят в работу: {inter.author.display_name}")
+            await inter.response.edit_message(embed=cl_embed, view=new_view)
 
-    elif act == "dc_t_release":
-        c_by = ticket.get("claimed_by", 0)
-        is_owner = (inter.guild and inter.guild.owner_id == inter.author.id) or sender_rank >= 9
-        if c_by and c_by != inter.author.id and not is_owner:
-            return await inter.response.send_message("❌ Освободить тикет может только тот сотрудник, кто его взял!", ephemeral=True)
-        await db.release_support_ticket(tid)
-        new_view = DiscordTicketView(ticket_id=tid, claimed_by=0)
-        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
-        cl_embed.color = disnake.Color.gold()
-        cl_embed.set_footer(text="🔄 Освобождён в общий пул (сложная ситуация)")
-        await inter.response.edit_message(embed=cl_embed, view=new_view)
-        await inter.channel.send(f"🔄 Тикет **#{tid}** освобождён сотрудником {inter.author.mention} и возвращён в общий пул!")
+        elif act == "dc_t_release":
+            c_by = ticket.get("claimed_by", 0)
+            is_owner = (inter.guild and inter.guild.owner_id == inter.author.id) or sender_rank >= 9
+            if c_by and c_by != inter.author.id and not is_owner:
+                return await inter.response.send_message("❌ Освободить тикет может только тот сотрудник, кто его взял!", ephemeral=True)
+            await db.release_support_ticket(tid)
+            new_view = DiscordTicketView(ticket_id=tid, claimed_by=0)
+            cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+            cl_embed.color = disnake.Color.gold()
+            cl_embed.set_footer(text="🔄 Освобождён в общий пул (сложная ситуация)")
+            await inter.response.edit_message(embed=cl_embed, view=new_view)
+            await inter.channel.send(f"🔄 Тикет **#{tid}** освобождён сотрудником {inter.author.mention} и возвращён в общий пул!")
 
-    elif act == "dc_t_answer":
-        c_by = ticket.get("claimed_by", 0)
-        if c_by and c_by != inter.author.id:
-            c_name = ticket.get("claimed_name") or "другой сотрудник"
-            return await inter.response.send_message(f"❌ Тикет занят: {c_name}!", ephemeral=True)
-        await inter.response.send_modal(TicketAnswerModal(ticket_id=tid, ticket=ticket))
+        elif act == "dc_t_answer":
+            c_by = ticket.get("claimed_by", 0)
+            if c_by and c_by != inter.author.id:
+                c_name = ticket.get("claimed_name") or "другой сотрудник"
+                return await inter.response.send_message(f"❌ Тикет занят: {c_name}!", ephemeral=True)
+            await inter.response.send_modal(TicketAnswerModal(ticket_id=tid, ticket=ticket))
 
-    elif act == "dc_t_reject":
-        c_by = ticket.get("claimed_by", 0)
-        if c_by and c_by != inter.author.id and sender_rank < 9:
-            return await inter.response.send_message("❌ Отклонить чужой тикет может только старший администратор!", ephemeral=True)
-        await db.close_support_ticket(tid, reason="Отклонено администратором")
-        cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
-        cl_embed.color = disnake.Color.red()
-        cl_embed.add_field(name="⛔️ Отклонён", value=f"Модератор: {inter.author.mention}", inline=False)
-        await inter.response.edit_message(embed=cl_embed, view=None)
+        elif act == "dc_t_reject":
+            c_by = ticket.get("claimed_by", 0)
+            if c_by and c_by != inter.author.id and sender_rank < 9:
+                return await inter.response.send_message("❌ Отклонить чужой тикет может только старший администратор!", ephemeral=True)
+            await db.close_support_ticket(tid, reason="Отклонено администратором")
+            cl_embed = inter.message.embeds[0] if inter.message.embeds else disnake.Embed(title=f"Тикет #{tid}")
+            cl_embed.color = disnake.Color.red()
+            cl_embed.add_field(name="⛔️ Отклонён", value=f"Модератор: {inter.author.mention}", inline=False)
+            await inter.response.edit_message(embed=cl_embed, view=None)
 
-    # --- Giveaway Join Button ---
+    # 2. Ticket Panel Button (User clicks "Открыть тикет")
+    elif cid == "dc_open_ticket_panel":
+        tid = await db.create_support_ticket(
+            user_id=config.DISCORD_UID_OFFSET + inter.author.id,
+            user_name=str(inter.author),
+            text="Обращение открыто через панель поддержки",
+            status="open",
+            platform="discord",
+            platform_peer_id=inter.channel.id
+        )
+        embed = disnake.Embed(
+            title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
+            description=f"👤 **Игрок:** {inter.author.mention}\n⏳ **Статус:** Ожидает сотрудника",
+            color=disnake.Color.gold()
+        )
+        await inter.channel.send(embed=embed, view=DiscordTicketView(ticket_id=tid))
+        await inter.response.send_message(f"✅ Тикет **#{tid}** успешно создан! Опишите вашу проблему прямо здесь.", ephemeral=True)
+
+    # 3. Verification Button (User clicks "Пройти верификацию")
+    elif cid.startswith("dc_verify:"):
+        role_name = cid.split(":", 1)[1]
+        guild = inter.guild
+        if not guild:
+            return await inter.response.send_message("❌ Действие доступно только на сервере!", ephemeral=True)
+        role = disnake.utils.get(guild.roles, name=role_name)
+        if not role:
+            try:
+                role = await guild.create_role(name=role_name, reason="Авто-роль для верификации MOXXI")
+            except Exception as e:
+                return await inter.response.send_message(f"❌ Ошибка создания роли (нет прав у бота): {e}", ephemeral=True)
+        try:
+            await inter.author.add_roles(role, reason="Успешная верификация через MOXXI")
+            await inter.response.send_message(f"🎉 **Поздравляем!** Вы успешно прошли верификацию и получили роль **{role.name}**!", ephemeral=True)
+        except Exception as e:
+            await inter.response.send_message(f"❌ Ошибка присвоения роли: {e}", ephemeral=True)
+
+    # 4. Giveaway Join Button
     elif cid.startswith("dc_gw_join:"):
         gw_id = int(cid.split(":", 1)[1])
         success, total_count = await db.join_giveaway(gw_id, inter.author.id)
         if not success:
             return await inter.response.send_message("⚠️ Вы уже принимаете участие в этом розыгрыше!", ephemeral=True)
-        # Update button counter
         try:
             view = disnake.ui.View(timeout=None)
             view.add_item(disnake.ui.Button(label=f"🎉 Участвовать ({total_count})", style=disnake.ButtonStyle.primary, custom_id=cid))
@@ -2562,56 +2602,7 @@ async def on_button_click(inter: disnake.MessageInteraction):
             pass
         await inter.response.send_message("🎉 **Вы успешно зарегистрированы в розыгрыше!** Желаем удачи!", ephemeral=True)
 
-    # --- Verification Button ---
-    elif cid.startswith("dc_verify:"):
-        role_name = cid.split(":", 1)[1]
-        guild = inter.guild
-        if not guild:
-            return
-        role = disnake.utils.get(guild.roles, name=role_name)
-        if not role:
-            try:
-                role = await guild.create_role(name=role_name, reason="Авто-роль для верификации MOXXI")
-            except Exception as e:
-                return await inter.response.send_message(f"❌ Ошибка выдачи роли (нет прав у бота): {e}", ephemeral=True)
-        try:
-            await inter.author.add_roles(role, reason="Успешная верификация через MOXXI")
-            await inter.response.send_message(f"🎉 **Поздравляем!** Вы успешно прошли верификацию и получили роль **{role.name}**!", ephemeral=True)
-        except Exception as e:
-            await inter.response.send_message(f"❌ Ошибка присвоения роли: {e}", ephemeral=True)
-
-    # ═══════════════════════════════════════════════════════════
-    # 26. ВОРДЛ / WORDLE (Мини-игра со словами 🟩🟨⬛)
-    # ═══════════════════════════════════════════════════════════
-    elif cmd in ("вордл", "wordle"):
-        user_id = message.author.id
-        guess_word = args.strip() if args else None
-        if not guess_word:
-            sess = wordle_game.get_wordle_session(user_id)
-            if not sess:
-                sess = wordle_game.start_wordle_session(user_id)
-            board_text = wordle_game.render_board(sess)
-            embed = disnake.Embed(
-                title="🟩 ИГРА ВОРДЛ (Wordle)",
-                description=(
-                    f"Загадано секретное русское слово из **5 букв**!\n"
-                    f"У вас есть **6 попыток**, чтобы его разгадать.\n\n"
-                    f"{board_text}\n\n"
-                    f"💡 Чтобы сделать ход, напишите: `вордл [слово]` или `/вордл [слово]`!"
-                ),
-                color=disnake.Color.blurple()
-            )
-            await message.reply(embed=embed)
-            return
-
-        embed, is_won, is_over, reward = wordle_game.process_guess(user_id, guess_word)
-        if is_won and reward > 0:
-            await db.add_balance(db_uid, reward)
-            await db.add_user_xp(db_uid, 100)
-        await message.reply(embed=embed)
-        return
-
-    # --- Shop Button Purchase ---
+    # 5. Shop Purchase Buttons
     elif cid.startswith("dc_shop_buy:"):
         item_key = cid.split(":", 1)[1]
         u_uid = config.DISCORD_UID_OFFSET + inter.author.id
@@ -2651,26 +2642,6 @@ async def on_button_click(inter: disnake.MessageInteraction):
                 return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
             await db.add_balance(u_uid, -price)
             return await inter.response.send_message("⛏ Вы приобрели **Набор шахтёра**! Добыча в шахте увеличена!", ephemeral=True)
-
-    # --- Ticket Panel Button ---
-    elif cid == "dc_open_ticket_panel":
-        # Create ticket for user
-        tid = await db.create_support_ticket(
-            user_id=config.DISCORD_UID_OFFSET + inter.author.id,
-            user_name=str(inter.author),
-            text="Обращение открыто через панель поддержки",
-            status="open",
-            platform="discord",
-            platform_peer_id=inter.channel.id
-        )
-        embed = disnake.Embed(
-            title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
-            description=f"👤 **Игрок:** {inter.author.mention}\n⏳ **Статус:** Ожидает сотрудника",
-            color=disnake.Color.gold()
-        )
-        await inter.channel.send(embed=embed, view=DiscordTicketView(ticket_id=tid))
-        await inter.response.send_message(f"✅ Тикет **#{tid}** успешно создан! Опишите вашу проблему прямо здесь.", ephemeral=True)
-
 
 
 async def main():
