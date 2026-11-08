@@ -51,7 +51,7 @@ log = logging.getLogger("moxxi-dc")
 
 intents = disnake.Intents.default()
 intents.message_content = True
-intents.members = True
+intents.members = False
 
 bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(*config.PREFIXES),
@@ -484,6 +484,11 @@ class MainMenuView(disnake.ui.View):
         await inter.response.send_message(embed=embed, view=HelpView(), ephemeral=True)
 
 
+async def keep_alive_pulse():
+    """Фоновый пульс для пробуждения Windows IOCP цикла и предотвращения задержек WebSocket"""
+    while True:
+        await asyncio.sleep(1.0)
+
 # ═══════════════════════════════════════════════════════════════
 # 🚀 СОБЫТИЯ DISCORD
 # ═══════════════════════════════════════════════════════════════
@@ -492,6 +497,7 @@ async def on_ready():
     log.info("Бот MOXXI Discord успешно вошел как: %s (ID: %d)", bot.user, bot.user.id)
     bot.add_view(MainMenuView())
     bot.add_view(HelpView())
+    asyncio.create_task(keep_alive_pulse())
     await bot.change_presence(
         activity=disnake.Activity(
             type=disnake.ActivityType.playing,
