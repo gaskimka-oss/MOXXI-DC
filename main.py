@@ -49,6 +49,10 @@ if hasattr(sys.stderr, "reconfigure"):
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+loop = asyncio.new_event_loop()
+asyncio.set_event_loop(loop)
+_background_tasks = set()
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] (MOXXI-DC) %(message)s"
@@ -931,9 +935,17 @@ async def on_ready():
         log.warning("Ошибка синхронизации команд: %s", e)
     bot.add_view(MainMenuView())
     bot.add_view(HelpView())
-    asyncio.create_task(keep_alive_pulse())
-    asyncio.create_task(anti_afk_ticket_watcher())
-    asyncio.create_task(giveaway_watcher())
+    t_pulse = asyncio.create_task(keep_alive_pulse())
+    _background_tasks.add(t_pulse)
+    t_pulse.add_done_callback(_background_tasks.discard)
+
+    t_afk = asyncio.create_task(anti_afk_ticket_watcher())
+    _background_tasks.add(t_afk)
+    t_afk.add_done_callback(_background_tasks.discard)
+
+    t_gw = asyncio.create_task(giveaway_watcher())
+    _background_tasks.add(t_gw)
+    t_gw.add_done_callback(_background_tasks.discard)
     await bot.change_presence(
         activity=disnake.Activity(
             type=disnake.ActivityType.playing,
@@ -2656,4 +2668,9 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop.run_until_complete(main())
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        loop.close()
