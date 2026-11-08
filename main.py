@@ -43,10 +43,6 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-# Фикс для Windows asyncio: предотвращает задержки heartbeat в IOCP
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] (MOXXI-DC) %(message)s"
@@ -411,6 +407,7 @@ class MainMenuView(disnake.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(disnake.ui.Button(label="🎮 Играть в WebApp", url=WEBAPP_URL, style=disnake.ButtonStyle.link, emoji="🕹"))
+        self.add_item(disnake.ui.Button(label="➕ Добавить на сервер", url=INVITE_URL, style=disnake.ButtonStyle.link, emoji="🤖"))
 
     @disnake.ui.button(label="Профиль", emoji="👑", style=disnake.ButtonStyle.success, custom_id="moxxi_dc_profile")
     async def btn_profile(self, button: disnake.ui.Button, inter: disnake.MessageInteraction):
@@ -487,6 +484,8 @@ class MainMenuView(disnake.ui.View):
 @bot.event
 async def on_ready():
     log.info("Бот MOXXI Discord успешно вошел как: %s (ID: %d)", bot.user, bot.user.id)
+    bot.add_view(MainMenuView())
+    bot.add_view(HelpView())
     await bot.change_presence(
         activity=disnake.Activity(
             type=disnake.ActivityType.playing,
