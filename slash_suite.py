@@ -845,5 +845,6 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
 
+
 def setup(bot: commands.Bot):
     bot.add_cog(SlashSuite(bot))

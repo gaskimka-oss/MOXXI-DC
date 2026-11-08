@@ -72,6 +72,7 @@ bot = commands.Bot(
     sync_commands_debug=True,
 )
 bot.load_extension("slash_suite")
+bot.load_extension("slash_extra")
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands"
 WEBAPP_URL = "https://gaskimka-oss.github.io/MOXXI/"
@@ -575,7 +576,7 @@ TWO_WORD_CMDS = {
     "-тех админ", "-технический администратор",
     "купить бизнес", "снять варн", "взять тикет", "закрыть тикет",
     "панель тикетов", "панель верификации", "сервер инфо", "юзер инфо",
-    "привязать ник", "пинг сервера"
+    "привязать ник", "пинг сервера", "купить авто", "купить крипту", "продать крипту", "забрать добычу"
 }
 
 KNOWN_COMMANDS = {
@@ -626,6 +627,12 @@ KNOWN_COMMANDS = {
     "криминал", "crime",
     "магазин", "шоп", "shop", "купить",
     "инвентарь", "инв", "inv", "рюкзак",
+    # 12. НОВЫЕ МОДУЛИ
+    "питомец", "пет", "pet", "приручить", "покормить", "кормить", "экспедиция", "поход", "забрать добычу", "добыча",
+    "автосалон", "авто", "купить авто", "купить_авто", "гараж", "гонка", "гонки",
+    "крипта", "crypto", "биржа", "купить крипту", "купить_крипту", "продать крипту", "продать_крипту",
+    "квесты", "задания", "quests", "квест",
+    "монетка", "кости",
 }
 KNOWN_COMMANDS.update(RANK_PROMOTIONS.keys())
 KNOWN_COMMANDS.update(RANK_DEMOTIONS)
@@ -2500,6 +2507,216 @@ async def on_message(message: disnake.Message):
         return
 
 
+
+    # ═══════════════════════════════════════════════════════════
+    # 26. 🐾 НОВЫЙ МОДУЛЬ: ПИТОМЦЫ, АВТО, КРИПТА, КВЕСТЫ
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("питомец", "пет", "pet"):
+        pet = await db.get_user_pet(db_uid)
+        if not pet:
+            embed = disnake.Embed(
+                title="🐾 ПИТОМНИК MOXXI",
+                description=(
+                    "У вас пока ещё нет питомца!\n\n"
+                    "• 🐱 **Котёнок** — `20,000` 🌑 монет\n"
+                    "• 🐶 **Хаски** — `45,000` 🌑 монет\n"
+                    "• 🦊 **Лисичка** — `120,000` 🌑 монет\n"
+                    "• 🐲 **Дракончик** — `600,000` 🌑 монет\n\n"
+                    "👉 Напишите: `приручить котёнок Барсик` или `/приручить`!"
+                ),
+                color=disnake.Color.blurple()
+            )
+            return await message.reply(embed=embed)
+
+        p_type = pet.get("pet_type", "cat")
+        p_name = pet.get("pet_name", "Питомец")
+        lvl = pet.get("level", 1) or 1
+        xp = pet.get("xp", 0) or 0
+        hunger = pet.get("hunger", 100) or 100
+        now = int(time.time())
+        exp_until = pet.get("expedition_until", 0) or 0
+
+        status_text = f"🧭 В экспедиции (ещё {(exp_until - now)//60} мин.)" if exp_until > now else ("🎉 Вернулся из похода!" if exp_until > 0 else "🏡 Отдыхает дома")
+        pet_icons = {"cat": "🐱", "dog": "🐶", "fox": "🦊", "dragon": "🐲"}
+        icon = pet_icons.get(p_type, "🐾")
+
+        desc_p = f"⚡️ Опыт: `{xp}/{lvl*100} XP`\n🍖 Сытость: `{hunger}/100%`\n📍 Статус: **{status_text}**\n\n💡 Команды: `покормить`, `экспедиция`, `забрать добычу`"
+        embed = disnake.Embed(
+            title=f"{icon} Питомец: {p_name} ({lvl} ур.)",
+            description=desc_p,
+            color=disnake.Color.green()
+        )
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(label="🍖 Покормить", style=disnake.ButtonStyle.success, custom_id="dc_pet_feed"))
+        view.add_item(disnake.ui.Button(label="🧭 В экспедицию", style=disnake.ButtonStyle.primary, custom_id="dc_pet_expedition"))
+        view.add_item(disnake.ui.Button(label="🏆 Забрать добычу", style=disnake.ButtonStyle.secondary, custom_id="dc_pet_claim"))
+        return await message.reply(embed=embed, view=view)
+
+    elif cmd in ("покормить", "кормить"):
+        pet = await db.get_user_pet(db_uid)
+        if not pet:
+            return await message.reply("❌ У вас нет питомца! Приручите его: `приручить котёнок Барсик`.")
+        await db.feed_pet(db_uid)
+        await db.progress_daily_quest(db_uid, "feed", 1)
+        return await message.reply(f"🍖 Вы вкусно покормили **{pet['pet_name']}**! Сытость восстановлена до 100%, +30 XP питомца!")
+
+    elif cmd in ("экспедиция", "поход"):
+        ok, msg_res = await db.send_pet_expedition(db_uid)
+        return await message.reply(msg_res)
+
+    elif cmd in ("забрать добычу", "добыча"):
+        ok, msg_res = await db.claim_pet_expedition(db_uid)
+        return await message.reply(msg_res)
+
+    elif cmd in ("автосалон", "авто"):
+        embed = disnake.Embed(
+            title="🏎 АВТОСАЛОН ЭЛИТНЫХ АВТОМОБИЛЕЙ MOXXI",
+            description=(
+                "• **1.** 🚗 **Lada Vesta Sport** — `30,000` 🌑 (180 км/ч)\n"
+                "• **2.** 🚙 **BMW M5 F90 CS** — `180,000` 🌑 (305 км/ч)\n"
+                "• **3.** 🏎 **Porsche 911 Turbo S** — `650,000` 🌑 (330 км/ч)\n"
+                "• **4.** 🔥 **Lamborghini Aventador SVJ** — `1,800,000` 🌑 (352 км/ч)\n"
+                "• **5.** 🚀 **Bugatti Chiron Super Sport** — `6,000,000` 🌑 (440 км/ч)\n\n"
+                "👉 Купить авто: `купить авто [bmw / vesta / porsche / lambo / bugatti]`\n"
+                "📂 Ваш гараж: `гараж` | Гонка: `гонка`"
+            ),
+            color=disnake.Color.gold()
+        )
+        return await message.reply(embed=embed)
+
+    elif cmd in ("гараж",):
+        cars = await db.get_user_cars(db_uid)
+        if not cars:
+            return await message.reply("📂 Ваш гараж пуст! Посетите `автосалон`.")
+        embed = disnake.Embed(title=f"🚘 ГАРАЖ — {message.author.display_name} ({len(cars)} авто)", color=disnake.Color.blurple())
+        for i, c in enumerate(cars, 1):
+            key = c.get("car_key", "")
+            spec = db.CAR_CATALOG.get(key, {"name": f"Авто ({key})", "cost": 0, "speed": 100})
+            embed.add_field(name=f"{i}. {spec['name']}", value=f"⚡️ `{spec.get('speed', 150)} км/ч` | 💰 `{spec['cost']:,}` 🌑", inline=False)
+        return await message.reply(embed=embed)
+
+    elif cmd in ("купить авто", "купить_авто"):
+        clean_key = args.strip().lower()
+        if not clean_key:
+            return await message.reply("💡 Укажите модель: `купить авто vesta`, `bmw`, `porsche`, `lambo`, `bugatti`.")
+        ok, msg_res = await db.buy_user_car(db_uid, clean_key)
+        return await message.reply(msg_res)
+
+    elif cmd in ("гонка", "гонки"):
+        cars = await db.get_user_cars(db_uid)
+        if not cars:
+            return await message.reply("❌ Для гонки вам нужен автомобиль! Купите его в `автосалон`.")
+        best_car = cars[0]
+        c_spec = db.CAR_CATALOG.get(best_car.get("car_key", ""), {"name": "Авто", "speed": 180})
+        user_speed = c_spec.get("speed", 180) + random.randint(-15, 25)
+        opp_speed = random.randint(160, 360)
+        opp = random.choice(["Доминик Торетто", "Брайан О'Коннор", "Хан", "Ночной призрак"])
+        if user_speed >= opp_speed:
+            prize = random.randint(1200, 3500)
+            await db.add_balance(db_uid, prize)
+            await db.add_user_xp(db_uid, 60)
+            return await message.reply(f"🏁 **ПОБЕДА В ГОНКЕ!**\nВы ({user_speed} км/ч) обошли {opp} ({opp_speed} км/ч)!\n💰 Призовые: `+{prize:,}` 🌑 монет и `+60 XP`!")
+        else:
+            return await message.reply(f"🏁 **Второе место!** Соперник {opp} ({opp_speed} км/ч) оказался быстрее вашей скорости ({user_speed} км/ч)!")
+
+    elif cmd in ("крипта", "crypto", "биржа"):
+        rate, change, _ = await db.get_crypto_rate()
+        my_mox = await db.get_user_crypto(db_uid)
+        trend = f"📈 `+{change:.1f}%`" if change >= 0 else f"📉 `{change:.1f}%`"
+        embed = disnake.Embed(
+            title="📈 БИРЖА MOXXICOIN (MOX)",
+            description=(
+                f"💎 **Курс:** `1 MOX = {rate:,.2f} 🌑` ({trend})\n"
+                f"👛 **Баланс портфеля:** `{my_mox:.4f} MOX` (~`{int(my_mox * rate):,}` 🌑)\n\n"
+                f"👉 `купить крипту [кол-во]` | `продать крипту [кол-во]`"
+            ),
+            color=disnake.Color.teal()
+        )
+        return await message.reply(embed=embed)
+
+    elif cmd in ("купить крипту", "купить_крипту"):
+        try:
+            amt = float(args.replace(",", ".").strip())
+        except ValueError:
+            return await message.reply("💡 Укажите количество: `купить крипту 5`.")
+        ok, msg_res = await db.buy_crypto(db_uid, amt)
+        return await message.reply(msg_res)
+
+    elif cmd in ("продать крипту", "продать_крипту"):
+        try:
+            amt = float(args.replace(",", ".").strip())
+        except ValueError:
+            return await message.reply("💡 Укажите количество: `продать крипту 5`.")
+        ok, msg_res = await db.sell_crypto(db_uid, amt)
+        return await message.reply(msg_res)
+
+    elif cmd in ("квесты", "задания", "quests", "квест"):
+        quests = await db.get_or_create_daily_quests(db_uid)
+        embed = disnake.Embed(title="📜 ЕЖЕДНЕВНЫЕ ЗАДАНИЯ MOXXI", color=disnake.Color.blurple())
+        view = disnake.ui.View(timeout=None)
+        has_buttons = False
+        for q in quests:
+            cur = q.get("current_count", 0)
+            target = q.get("target_count", 1)
+            is_done = q.get("completed", 0) == 1
+            is_claimed = q.get("claimed", 0) == 1
+            st = "✅ Получено" if is_claimed else ("🎁 Выполнено!" if is_done else f"⏳ `{cur}/{target}`")
+            if is_done and not is_claimed:
+                view.add_item(disnake.ui.Button(label=f"🎁 Забрать ({q['reward_coins']} 🌑)", style=disnake.ButtonStyle.success, custom_id=f"dc_quest_claim:{q['quest_id']}"))
+                has_buttons = True
+            embed.add_field(name=q['quest_title'], value=f"Прогресс: `{cur}/{target}` | Награда: `+{q['reward_coins']:,}` 🌑 | {st}", inline=False)
+        if has_buttons:
+            return await message.reply(embed=embed, view=view)
+        return await message.reply(embed=embed)
+
+    elif cmd in ("монетка",):
+        parts_a = args.split()
+        if len(parts_a) < 2:
+            return await message.reply("💡 Использование: `монетка 500 орёл` или `монетка 500 решка`.")
+        try:
+            bet = int(parts_a[0])
+        except ValueError:
+            return await message.reply("❌ Неверная сумма ставки!")
+        choice = parts_a[1].lower()
+        if choice not in ("орёл", "орел", "решка"):
+            return await message.reply("❌ Выберите `орёл` или `решка`!")
+        bal = u_data.get("balance", 0)
+        if bal < bet or bet <= 0:
+            return await message.reply(f"❌ Недостаточно средств! Баланс: `{bal:,}` 🌑.")
+        coin_res = random.choice(["орёл", "решка"])
+        won = (choice in ("орёл", "орел") and coin_res == "орёл") or (choice == "решка" and coin_res == "решка")
+        if won:
+            await db.add_balance(db_uid, bet)
+            await db.progress_daily_quest(db_uid, "slots", 1)
+            return await message.reply(f"🪙 **Выпал {coin_res.upper()}!** 🎉 Вы выиграли `+{bet:,}` 🌑 монет!")
+        else:
+            await db.add_balance(db_uid, -bet)
+            await db.progress_daily_quest(db_uid, "slots", 1)
+            return await message.reply(f"🪙 **Выпал {coin_res.upper()}!** 😢 Вы проиграли `-{bet:,}` 🌑 монет.")
+
+    elif cmd in ("кости",):
+        try:
+            bet = int(args.strip())
+        except ValueError:
+            return await message.reply("💡 Использование: `кости 500`.")
+        bal = u_data.get("balance", 0)
+        if bal < bet or bet <= 0:
+            return await message.reply(f"❌ Недостаточно средств! Баланс: `{bal:,}` 🌑.")
+        d1, d2 = random.randint(1, 6), random.randint(1, 6)
+        b1, b2 = random.randint(1, 6), random.randint(1, 6)
+        u_sum, b_sum = d1 + d2, b1 + b2
+        if u_sum > b_sum:
+            await db.add_balance(db_uid, bet)
+            await db.progress_daily_quest(db_uid, "slots", 1)
+            return await message.reply(f"🎲 **ПОБЕДА!**\nВы: 🎲 {d1}+{d2}=**{u_sum}** | MOXXI: 🎲 {b1}+{b2}=**{b_sum}**\n🎉 Выигрыш: `+{bet:,}` 🌑!")
+        elif u_sum < b_sum:
+            await db.add_balance(db_uid, -bet)
+            await db.progress_daily_quest(db_uid, "slots", 1)
+            return await message.reply(f"🎲 **ПРОИГРЫШ!**\nВы: 🎲 {d1}+{d2}=**{u_sum}** | MOXXI: 🎲 {b1}+{b2}=**{b_sum}**\n😢 Потеряно: `-{bet:,}` 🌑!")
+        else:
+            return await message.reply(f"🎲 **НИЧЬЯ!**\nВы: 🎲 {d1}+{d2}=**{u_sum}** | MOXXI: 🎲 {b1}+{b2}=**{b_sum}**\n🤝 Ставка сохранена.")
+
+
 @bot.event
 async def on_button_click(inter: disnake.MessageInteraction):
     cid = inter.component.custom_id
@@ -2566,94 +2783,153 @@ async def on_button_click(inter: disnake.MessageInteraction):
 
     # 2. Ticket Panel Button (User clicks "Открыть тикет")
     elif cid == "dc_open_ticket_panel":
-        tid = await db.create_support_ticket(
-            user_id=config.DISCORD_UID_OFFSET + inter.author.id,
-            user_name=str(inter.author),
-            text="Обращение открыто через панель поддержки",
-            status="open",
-            platform="discord",
-            platform_peer_id=inter.channel.id
-        )
-        embed = disnake.Embed(
-            title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
-            description=f"👤 **Игрок:** {inter.author.mention}\n⏳ **Статус:** Ожидает сотрудника",
-            color=disnake.Color.gold()
-        )
-        await inter.channel.send(embed=embed, view=DiscordTicketView(ticket_id=tid))
-        await inter.response.send_message(f"✅ Тикет **#{tid}** успешно создан! Опишите вашу проблему прямо здесь.", ephemeral=True)
+        await inter.response.defer(ephemeral=True)
+        try:
+            tid = await db.create_support_ticket(
+                user_id=config.DISCORD_UID_OFFSET + inter.author.id,
+                user_name=str(inter.author),
+                text="Обращение открыто через панель поддержки",
+                status="open",
+                platform="discord",
+                platform_peer_id=inter.channel.id
+            )
+            embed = disnake.Embed(
+                title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
+                description=f"👤 **Игрок:** {inter.author.mention}\n⏳ **Статус:** Ожидает сотрудника\n\n💬 Напишите суть вопроса прямо в этом канале.",
+                color=disnake.Color.gold()
+            )
+            await inter.channel.send(embed=embed, view=DiscordTicketView(ticket_id=tid))
+            await inter.edit_original_response(content=f"✅ Тикет **#{tid}** успешно создан! Опишите вашу проблему прямо здесь.")
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка создания тикета: {e}")
 
     # 3. Verification Button (User clicks "Пройти верификацию")
     elif cid.startswith("dc_verify:"):
-        role_name = cid.split(":", 1)[1]
-        guild = inter.guild
-        if not guild:
-            return await inter.response.send_message("❌ Действие доступно только на сервере!", ephemeral=True)
-        role = disnake.utils.get(guild.roles, name=role_name)
-        if not role:
-            try:
-                role = await guild.create_role(name=role_name, reason="Авто-роль для верификации MOXXI")
-            except Exception as e:
-                return await inter.response.send_message(f"❌ Ошибка создания роли (нет прав у бота): {e}", ephemeral=True)
+        await inter.response.defer(ephemeral=True)
         try:
+            role_name = cid.split(":", 1)[1]
+            guild = inter.guild
+            if not guild:
+                return await inter.edit_original_response(content="❌ Действие доступно только на сервере!")
+            role = disnake.utils.get(guild.roles, name=role_name)
+            if not role:
+                try:
+                    role = await guild.create_role(name=role_name, reason="Авто-роль для верификации MOXXI")
+                except Exception as e:
+                    return await inter.edit_original_response(content=f"❌ Ошибка создания роли (проверьте права бота): {e}")
             await inter.author.add_roles(role, reason="Успешная верификация через MOXXI")
-            await inter.response.send_message(f"🎉 **Поздравляем!** Вы успешно прошли верификацию и получили роль **{role.name}**!", ephemeral=True)
+            await inter.edit_original_response(content=f"🎉 **Поздравляем!** Вы успешно прошли верификацию и получили роль **{role.name}**!")
         except Exception as e:
-            await inter.response.send_message(f"❌ Ошибка присвоения роли: {e}", ephemeral=True)
+            await inter.edit_original_response(content=f"❌ Ошибка присвоения роли: {e}")
 
     # 4. Giveaway Join Button
     elif cid.startswith("dc_gw_join:"):
-        gw_id = int(cid.split(":", 1)[1])
-        success, total_count = await db.join_giveaway(gw_id, inter.author.id)
-        if not success:
-            return await inter.response.send_message("⚠️ Вы уже принимаете участие в этом розыгрыше!", ephemeral=True)
+        await inter.response.defer(ephemeral=True)
         try:
-            view = disnake.ui.View(timeout=None)
-            view.add_item(disnake.ui.Button(label=f"🎉 Участвовать ({total_count})", style=disnake.ButtonStyle.primary, custom_id=cid))
-            await inter.message.edit(view=view)
-        except Exception:
-            pass
-        await inter.response.send_message("🎉 **Вы успешно зарегистрированы в розыгрыше!** Желаем удачи!", ephemeral=True)
+            gw_id = int(cid.split(":", 1)[1])
+            success, total_count = await db.join_giveaway(gw_id, inter.author.id)
+            if not success:
+                return await inter.edit_original_response(content="⚠️ Вы уже принимаете участие в этом розыгрыше!")
+            try:
+                view = disnake.ui.View(timeout=None)
+                view.add_item(disnake.ui.Button(label=f"🎉 Участвовать ({total_count})", style=disnake.ButtonStyle.primary, custom_id=cid))
+                await inter.message.edit(view=view)
+            except Exception:
+                pass
+            await inter.edit_original_response(content="🎉 **Вы успешно зарегистрированы в розыгрыше!** Желаем удачи!")
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка участия в розыгрыше: {e}")
 
     # 5. Shop Purchase Buttons
     elif cid.startswith("dc_shop_buy:"):
-        item_key = cid.split(":", 1)[1]
-        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
-        await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
-        u_data = await db.get_user(u_uid) or {}
-        bal = u_data.get("balance", 0)
-        now = int(time.time())
+        await inter.response.defer(ephemeral=True)
+        try:
+            item_key = cid.split(":", 1)[1]
+            u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+            await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
+            u_data = await db.get_user(u_uid) or {}
+            bal = u_data.get("balance", 0)
+            now = int(time.time())
 
-        if item_key == "safe":
-            price = 5000
-            if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
-            await db.add_balance(u_uid, -price)
-            until = max(now, u_data.get("safe_until", 0)) + 7 * 86400
-            await db.set_user_safe(u_uid, until)
-            return await inter.response.send_message(f"🛡 Вы успешно приобрели **Сейф от грабителей** на 7 дней (до <t:{until}:F>)!", ephemeral=True)
+            if item_key == "safe":
+                price = 5000
+                if bal < price:
+                    return await inter.edit_original_response(content=f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).")
+                await db.add_balance(u_uid, -price)
+                until = max(now, u_data.get("safe_until", 0)) + 7 * 86400
+                await db.set_user_safe(u_uid, until)
+                return await inter.edit_original_response(content=f"🛡 Вы успешно приобрели **Сейф от грабителей** на 7 дней (до <t:{until}:F>)!")
 
-        elif item_key == "booster":
-            price = 2500
-            if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
-            await db.add_balance(u_uid, -price)
-            until = max(now, u_data.get("xp_booster_until", 0)) + 86400
-            await db.set_user_xp_booster(u_uid, until)
-            return await inter.response.send_message(f"⚡️ Вы успешно активировали **Бустер опыта 2x** на 24 часа (до <t:{until}:F>)!", ephemeral=True)
+            elif item_key == "booster":
+                price = 2500
+                if bal < price:
+                    return await inter.edit_original_response(content=f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).")
+                await db.add_balance(u_uid, -price)
+                until = max(now, u_data.get("xp_booster_until", 0)) + 86400
+                await db.set_user_xp_booster(u_uid, until)
+                return await inter.edit_original_response(content=f"⚡️ Вы успешно активировали **Бустер опыта 2x** на 24 часа (до <t:{until}:F>)!")
 
-        elif item_key == "lottery":
-            price = 500
-            if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
-            await db.add_balance(u_uid, -price)
-            return await inter.response.send_message("🎫 Вы купили **Лотерейный билет**! Удачи в розыгрыше!", ephemeral=True)
+            elif item_key == "lottery":
+                price = 500
+                if bal < price:
+                    return await inter.edit_original_response(content=f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).")
+                await db.add_balance(u_uid, -price)
+                return await inter.edit_original_response(content="🎫 Вы купили **Лотерейный билет**! Удачи в розыгрыше!")
 
-        elif item_key == "miner":
-            price = 1500
-            if bal < price:
-                return await inter.response.send_message(f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).", ephemeral=True)
-            await db.add_balance(u_uid, -price)
-            return await inter.response.send_message("⛏ Вы приобрели **Набор шахтёра**! Добыча в шахте увеличена!", ephemeral=True)
+            elif item_key == "miner":
+                price = 1500
+                if bal < price:
+                    return await inter.edit_original_response(content=f"❌ Недостаточно средств! Нужно `{price:,}` 🌑 (у вас `{bal:,}` 🌑).")
+                await db.add_balance(u_uid, -price)
+                return await inter.edit_original_response(content="⛏ Вы приобрели **Набор шахтёра**! Добыча в шахте увеличена!")
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка покупки: {e}")
+
+    # 6. Pet Interactive Buttons
+    elif cid == "dc_pet_feed":
+        await inter.response.defer(ephemeral=True)
+        try:
+            u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+            pet = await db.get_user_pet(u_uid)
+            if not pet:
+                return await inter.edit_original_response(content="❌ У вас нет питомца! Заведите его: `/приручить`.")
+            hunger = pet.get("hunger", 100)
+            if hunger >= 95:
+                return await inter.edit_original_response(content=f"🐾 Ваш питомец **{pet['pet_name']}** уже сыт ({hunger}/100)!")
+            await db.feed_pet(u_uid)
+            await db.progress_daily_quest(u_uid, "feed", 1)
+            await inter.edit_original_response(content=f"🍖 Вы вкусно покормили **{pet['pet_name']}**! Сытость восстановлена до 100%, получено +30 XP питомца!")
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка кормления: {e}")
+
+    elif cid == "dc_pet_expedition":
+        await inter.response.defer(ephemeral=True)
+        try:
+            u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+            ok, msg = await db.send_pet_expedition(u_uid)
+            await inter.edit_original_response(content=msg)
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка отправки: {e}")
+
+    elif cid == "dc_pet_claim":
+        await inter.response.defer(ephemeral=True)
+        try:
+            u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+            ok, msg = await db.claim_pet_expedition(u_uid)
+            await inter.edit_original_response(content=msg)
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка получения добычи: {e}")
+
+    # 7. Daily Quest Claim Button
+    elif cid.startswith("dc_quest_claim:"):
+        await inter.response.defer(ephemeral=True)
+        try:
+            qid = cid.split(":", 1)[1]
+            u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+            ok, msg = await db.claim_quest_reward(u_uid, qid)
+            await inter.edit_original_response(content=msg)
+        except Exception as e:
+            await inter.edit_original_response(content=f"❌ Ошибка получения награды: {e}")
 
 
 async def main():
