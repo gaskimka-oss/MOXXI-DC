@@ -982,3 +982,110 @@ async def finish_vk_auction(auction_id: int) -> dict | None:
         await add_xp(lot["seller_id"], 50)
         await add_xp(lot["leader_id"], 75)
     return lot
+
+
+# ═══════════════════════════════════════════════════════════════
+# 💎 СУПЕР-ФУНКЦИИ: МАКСИМАЛЬНЫЙ ОПЫТ, РОЗЫГРЫШИ И ДИСКОРД-МОДУЛИ
+# ═══════════════════════════════════════════════════════════════
+
+async def add_user_xp(user_id: int, amount: int) -> tuple[int, int, bool]:
+    u = await get_user(user_id) or {}
+    cur_xp = u.get("xp", 0)
+    old_lvl = u.get("level", 1) or 1
+
+    # Check XP booster
+    now = int(time.time())
+    if u.get("xp_booster_until", 0) > now:
+        amount = amount * 2
+
+    new_xp = cur_xp + amount
+    # Каждый уровень требует level * 100 XP
+    new_lvl = max(1, int((new_xp / 100) ** 0.5) + 1)
+    leveled_up = new_lvl > old_lvl
+
+    await conn().execute(
+        """UPDATE users
+           SET xp = ?, level = ?, messages = COALESCE(messages, 0) + 1
+           WHERE user_id = ?""",
+        (new_xp, new_lvl, user_id)
+    )
+    await conn().commit()
+    return new_xp, new_lvl, leveled_up
+
+async def create_giveaway(channel_id: int, message_id: int, prize: str, winners_count: int, duration_sec: int, created_by: int) -> int:
+    now = int(time.time())
+    ends_at = now + duration_sec
+    async with conn().execute(
+        """INSERT INTO dc_giveaways (channel_id, message_id, prize, winners_count, ends_at, status, entries_json, created_by)
+           VALUES (?, ?, ?, ?, ?, 'active', '[]', ?)""",
+        (channel_id, message_id, prize, winners_count, ends_at, created_by)
+    ) as cur:
+        await conn().commit()
+        return int(cur.lastrowid)
+
+async def get_giveaway(giveaway_id: int) -> dict | None:
+    async with conn().execute("SELECT * FROM dc_giveaways WHERE id = ?", (giveaway_id,)) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def join_giveaway(giveaway_id: int, user_id: int) -> tuple[bool, int]:
+    async with conn().execute("SELECT entries_json, status FROM dc_giveaways WHERE id = ?", (giveaway_id,)) as cur:
+        row = await cur.fetchone()
+        if not row or row["status"] != "active":
+            return False, 0
+        import json
+        entries = json.loads(row["entries_json"] or "[]")
+        if user_id in entries:
+            return False, len(entries)
+        entries.append(user_id)
+        await conn().execute("UPDATE dc_giveaways SET entries_json = ? WHERE id = ?", (json.dumps(entries), giveaway_id))
+        await conn().commit()
+        return True, len(entries)
+
+async def get_active_giveaways() -> list[dict]:
+    now = int(time.time())
+    async with conn().execute("SELECT * FROM dc_giveaways WHERE status = 'active' AND ends_at <= ?", (now,)) as cur:
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+async def finish_giveaway(giveaway_id: int) -> None:
+    await conn().execute("UPDATE dc_giveaways SET status = 'finished' WHERE id = ?", (giveaway_id,))
+    await conn().commit()
+
+async def get_top_level(limit: int = 10) -> list[dict]:
+    async with conn().execute(
+        "SELECT user_id, first_name, username, xp, level FROM users ORDER BY xp DESC LIMIT ?",
+        (limit,)
+    ) as cur:
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
+
+async def set_user_mc_nick(user_id: int, mc_nick: str) -> None:
+    await conn().execute("UPDATE users SET mc_nick = ? WHERE user_id = ?", (mc_nick, user_id))
+    await conn().commit()
+
+async def set_user_safe(user_id: int, duration_sec: int = 7 * 86400) -> int:
+    now = int(time.time())
+    until = now + duration_sec
+    await conn().execute("UPDATE users SET safe_until = ? WHERE user_id = ?", (until, user_id))
+    await conn().commit()
+    return until
+
+async def set_user_xp_booster(user_id: int, duration_sec: int = 86400) -> int:
+    now = int(time.time())
+    until = now + duration_sec
+    await conn().execute("UPDATE users SET xp_booster_until = ? WHERE user_id = ?", (until, user_id))
+    await conn().commit()
+    return until
+
+async def update_user_action_cooldown(user_id: int, action: str) -> None:
+    now = int(time.time())
+    col_map = {
+        "work": "last_work_ts",
+        "beg": "last_beg_ts",
+        "crime": "last_crime_ts"
+    }
+    col = col_map.get(action)
+    if col:
+        await conn().execute(f"UPDATE users SET {col} = ? WHERE user_id = ?", (now, user_id))
+        await conn().commit()

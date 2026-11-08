@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import asyncio
+import aiohttp
 import datetime
 import html
 import json
@@ -36,6 +37,7 @@ import config
 import db
 import extended
 import commands_catalog
+import wordle_game
 
 # UTF-8 в консоли
 if hasattr(sys.stdout, "reconfigure"):
@@ -57,8 +59,11 @@ bot = commands.Bot(
     command_prefix=commands.when_mentioned_or(*config.PREFIXES),
     intents=intents,
     case_insensitive=True,
-    help_command=None
+    help_command=None,
+    test_guilds=[848248778384474124],
+    sync_commands_debug=True,
 )
+bot.load_extension("slash_suite")
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands"
 WEBAPP_URL = "https://gaskimka-oss.github.io/MOXXI/"
@@ -551,7 +556,7 @@ RANK_DEMOTIONS = {
 }
 
 TWO_WORD_CMDS = {
-    "мой ранг", "мой_ранг",
+    "мой ранг", "мой_ранг", "топ уровень", "топ лвл", "топ дамаг", "топ урон",
     "+главный админ", "+старший админ", "+младший админ",
     "+главный модер", "+старший модер", "+младший модер",
     "+главный модератор", "+старший модератор", "+младший модератор",
@@ -560,7 +565,9 @@ TWO_WORD_CMDS = {
     "-главный модер", "-старший модер", "-младший модер",
     "-главный модератор", "-старший модератор", "-младший модератор",
     "-тех админ", "-технический администратор",
-    "купить бизнес", "снять варн", "взять тикет", "закрыть тикет"
+    "купить бизнес", "снять варн", "взять тикет", "закрыть тикет",
+    "панель тикетов", "панель верификации", "сервер инфо", "юзер инфо",
+    "привязать ник", "пинг сервера"
 }
 
 KNOWN_COMMANDS = {
@@ -595,7 +602,22 @@ KNOWN_COMMANDS = {
     "кик", "kick", "бан", "ban", "варн", "warn", "варны", "warns",
     "снятьварн", "снять варн", "unwarn", "мут", "mute", "размут", "unmute",
     # 6. Поддержка и тикеты
-    "поддержка", "тикет", "support", "ticket",
+    "поддержка", "тикет", "support", "ticket", "панель_тикетов", "панель тикетов", "вордл", "wordle",
+    # 7. Black-Minecraft (#8989) & Minecraft Suite
+    "сервер", "пинг", "mc", "скин", "skin", "голова", "head",
+    "привязать_ник", "привязать ник", "ник_мс", "панель_верификации", "панель верификации", "верификация",
+    # 8. GiveawayBot (Розыгрыши)
+    "розыгрыш", "giveaway", "конкурс",
+    # 9. MEE6 / Arcane (Уровни и активность)
+    "уровень", "лвл", "топ_уровень", "топ_лвл", "топ уровень", "топ лвл", "levels",
+    # 10. Carl-bot / Dyno (Чистка и сервер)
+    "очистить", "clear", "purge", "сервер_инфо", "сервер инфо", "юзер_инфо", "юзер инфо",
+    # 11. Dank Memer / UnbelievaBoat (Работа, Попрошайничество, Криминал, Магазин)
+    "работа", "работать", "work", "смена",
+    "попрошайничать", "бомжевать", "beg",
+    "криминал", "crime",
+    "магазин", "шоп", "shop", "купить",
+    "инвентарь", "инв", "inv", "рюкзак",
 }
 KNOWN_COMMANDS.update(RANK_PROMOTIONS.keys())
 KNOWN_COMMANDS.update(RANK_DEMOTIONS)
@@ -802,6 +824,84 @@ class DiscordTicketView(disnake.ui.View):
             ))
 
 
+
+_user_xp_cd: dict[int, float] = {}
+
+def build_progress_bar(cur: int, total: int, length: int = 10) -> str:
+    ratio = min(1.0, max(0.0, cur / total if total > 0 else 0))
+    filled = int(length * ratio)
+    return "█" * filled + "░" * (length - filled)
+
+async def giveaway_watcher():
+    """Фоновый мониторинг розыгрышей: автоматическое подведение итогов по таймеру"""
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            active_gws = await db.get_active_giveaways()
+            for gw in active_gws:
+                gw_id = gw["id"]
+                cid = gw["channel_id"]
+                mid = gw["message_id"]
+                prize = gw["prize"]
+                w_count = gw["winners_count"]
+                entries = json.loads(gw.get("entries_json") or "[]")
+
+                channel = bot.get_channel(cid)
+                if not channel:
+                    try:
+                        channel = await bot.fetch_channel(cid)
+                    except Exception:
+                        channel = None
+
+                await db.finish_giveaway(gw_id)
+
+                if not entries:
+                    res_desc = f"❌ В розыгрыше **{prize}** никто не принял участие!"
+                    if channel:
+                        try:
+                            msg = await channel.fetch_message(mid)
+                            embed = msg.embeds[0] if msg.embeds else disnake.Embed(title="🎉 РОЗЫГРЫШ ЗАВЕРШЁН")
+                            embed.color = disnake.Color.red()
+                            embed.description = res_desc
+                            await msg.edit(embed=embed, view=None)
+                        except Exception:
+                            pass
+                    continue
+
+                winners_count = min(len(entries), w_count)
+                winners_uids = random.sample(entries, winners_count)
+                winners_mentions = [f"<@{uid}>" for uid in winners_uids]
+
+                # Проверяем начисление монет
+                num_m = re.search(r"\b(\d+)\b", prize.replace(" ", ""))
+                if num_m and "монет" in prize.lower():
+                    coins_win = int(num_m.group(1))
+                    for w_uid in winners_uids:
+                        t_db_uid = config.DISCORD_UID_OFFSET + w_uid
+                        await db.add_balance(t_db_uid, coins_win)
+
+                win_str = ", ".join(winners_mentions)
+                res_desc = (
+                    f"🏆 **ПОЗДРАВЛЯЕМ ПОБЕДИТЕЛЕЙ!**\n\n"
+                    f"🎁 **Приз:** {prize}\n"
+                    f"👑 **Победители:** {win_str}\n\n"
+                    f"📊 *Всего участников:* `{len(entries)}`"
+                )
+
+                if channel:
+                    try:
+                        msg = await channel.fetch_message(mid)
+                        embed = msg.embeds[0] if msg.embeds else disnake.Embed(title="🎉 РОЗЫГРЫШ ЗАВЕРШЁН")
+                        embed.color = disnake.Color.gold()
+                        embed.description = res_desc
+                        await msg.edit(embed=embed, view=None)
+                        await channel.send(f"🎉 Розыгрыш **{prize}** завершён! Победители: {win_str}!")
+                    except Exception as e:
+                        log.warning("giveaway update message error: %s", e)
+        except Exception as e:
+            log.warning("giveaway_watcher error: %s", e)
+        await asyncio.sleep(10.0)
+
 async def anti_afk_ticket_watcher():
     """Фоновый страж: если тикет занят стаффом более 1 часа без ответа, возвращает в общий пул"""
     await bot.wait_until_ready()
@@ -824,6 +924,7 @@ async def on_ready():
     bot.add_view(HelpView())
     asyncio.create_task(keep_alive_pulse())
     asyncio.create_task(anti_afk_ticket_watcher())
+    asyncio.create_task(giveaway_watcher())
     await bot.change_presence(
         activity=disnake.Activity(
             type=disnake.ActivityType.playing,
@@ -872,6 +973,22 @@ async def on_message(message: disnake.Message):
 
     await db.ensure_user(db_uid, username=str(message.author), first_name=message.author.display_name)
     u_data = await db.get_user(db_uid) or {}
+
+    # Начисление XP за сообщения в чате (MEE6 / Arcane система)
+    now_ts = time.time()
+    if now_ts - _user_xp_cd.get(message.author.id, 0) >= 45.0:
+        _user_xp_cd[message.author.id] = now_ts
+        xp_gain = random.randint(15, 25)
+        new_xp, new_lvl, leveled_up = await db.add_user_xp(db_uid, xp_gain)
+        if leveled_up:
+            lvl_reward = new_lvl * 1500
+            await db.add_balance(db_uid, lvl_reward)
+            try:
+                await message.channel.send(
+                    f"🎉 {message.author.mention}, уровень повышен до **[{new_lvl} ур.]**! 💰 Награда: `+{lvl_reward:,}` 🌑 монет!"
+                )
+            except Exception:
+                pass
 
     # ═══════════════════════════════════════════════════════════
     # 0. ИНВАЙТ / ПРИГЛАШЕНИЕ
@@ -1854,6 +1971,487 @@ async def on_message(message: disnake.Message):
 
 
 
+
+    # ═══════════════════════════════════════════════════════════
+    # 20. 🎮 BLACK-MINECRAFT.COM (#8989) SUITE
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("сервер", "пинг", "mc", "пинг сервера"):
+        if not args:
+            return await message.reply("💡 Укажите IP сервера! Пример: `сервер mc.hypixel.net` или `сервер play.funtime.su`")
+        status_msg = await message.reply("🔍 Опрашиваю сервер Minecraft...")
+        srv_ip = args.strip()
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(f"https://api.mcsrvstat.us/2/{srv_ip}", timeout=aiohttp.ClientTimeout(total=5.0)) as r:
+                    data = await r.json()
+        except Exception as e:
+            return await status_msg.edit(content=f"❌ Ошибка подключения к серверу `{srv_ip}`: {e}")
+
+        is_online = data.get("online", False)
+        if not is_online:
+            embed = disnake.Embed(
+                title=f"🔴 СЕРВЕР ОФЛАЙН · {srv_ip}",
+                description="Сервер недоступен или указан неверный адрес.",
+                color=disnake.Color.red()
+            )
+            return await status_msg.edit(content=None, embed=embed)
+
+        pl = data.get("players", {})
+        on_p = pl.get("online", 0)
+        max_p = pl.get("max", 0)
+        ver = data.get("version", "Неизвестно")
+        motd_lines = data.get("motd", {}).get("clean", [])
+        motd_text = "\n".join(motd_lines) if motd_lines else "Нет описания"
+
+        embed = disnake.Embed(
+            title=f"🟢 МОНИТОРИНГ СЕРВЕРА MINECRAFT",
+            description=f"🌐 **Адрес:** `{srv_ip}`\n\n📝 **MOTD:**\n```\n{motd_text[:300]}\n```",
+            color=disnake.Color.green()
+        )
+        embed.add_field(name="👥 Игроки онлайн", value=f"`{on_p:,} / {max_p:,}`", inline=True)
+        embed.add_field(name="⚙️ Версия", value=f"`{ver}`", inline=True)
+        embed.set_thumbnail(url=f"https://api.mcsrvstat.us/icon/{srv_ip}")
+        embed.set_footer(text="MOXXI x Black-Minecraft Edition #8989")
+        await status_msg.edit(content=None, embed=embed)
+        return
+
+    elif cmd in ("скин", "skin"):
+        if not args:
+            return await message.reply("💡 Укажите ник игрока Minecraft! Пример: `скин Notch`")
+        nick = args.strip().split()[0]
+        embed = disnake.Embed(
+            title=f"👕 3D СКИН ИГРОКА: {nick}",
+            description=f"📥 [Скачать скин](https://minotar.net/download/{nick})",
+            color=disnake.Color.from_rgb(0, 242, 254)
+        )
+        embed.set_image(url=f"https://mc-heads.net/body/{nick}/right")
+        embed.set_thumbnail(url=f"https://mc-heads.net/avatar/{nick}")
+        embed.set_footer(text="MOXXI Minecraft Tools")
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("голова", "head"):
+        if not args:
+            return await message.reply("💡 Укажите ник игрока! Пример: `голова Notch`")
+        nick = args.strip().split()[0]
+        embed = disnake.Embed(
+            title=f"👤 АВАТАР ИГРОКА: {nick}",
+            color=disnake.Color.from_rgb(0, 242, 254)
+        )
+        embed.set_image(url=f"https://mc-heads.net/avatar/{nick}/256")
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("привязать_ник", "привязать ник", "ник_мс"):
+        if not args:
+            return await message.reply("💡 Укажите ваш игровой никнейм Minecraft! Пример: `привязать_ник Steve`")
+        mc_name = args.strip().split()[0]
+        await db.set_user_mc_nick(db_uid, mc_name)
+        await message.reply(f"🎮 Ваш никнейм Minecraft **`{mc_name}`** успешно привязан к профилю MOXXI!")
+        return
+
+    elif cmd in ("панель_верификации", "панель верификации", "верификация"):
+        if not message.guild:
+            return await message.reply("❌ Доступно только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 8:
+            return await message.reply("⛔️ Создавать панель верификации могут сотрудники от **[8] Тех. администратор**!")
+
+        role_name = args.strip() or "Участник"
+        embed = disnake.Embed(
+            title="🛡 ВЕРИФИКАЦИЯ НА СЕРВЕРЕ",
+            description=(
+                f"Добро пожаловать на сервер **{message.guild.name}**!\n\n"
+                f"Чтобы получить полный доступ ко всем текстовым и голосовым каналам, "
+                f"нажмите на зелёную кнопку ниже:\n\n"
+                f"👇 **Нажмите для прохождения верификации:**"
+            ),
+            color=disnake.Color.green()
+        )
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(
+            label="✅ Пройти верификацию",
+            style=disnake.ButtonStyle.success,
+            custom_id=f"dc_verify:{role_name}",
+            emoji="🔓"
+        ))
+        await message.channel.send(embed=embed, view=view)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 21. 🎉 GIVEAWAYBOT SUITE (АВТОМАТИЧЕСКИЕ РОЗЫГРЫШИ)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("розыгрыш", "giveaway", "конкурс"):
+        if not message.guild:
+            return await message.reply("❌ Розыгрыши доступны только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 3:
+            return await message.reply("⛔️ Создавать розыгрыши могут сотрудники от **[3] Старший модератор**!")
+
+        parts = args.split(maxsplit=2)
+        if len(parts) < 3 or not parts[0].isdigit() or not parts[1].isdigit():
+            return await message.reply("💡 Формат: `розыгрыш [минут] [победителей] [приз]`\nПример: `розыгрыш 15 1 50 000 монет`")
+
+        duration_min = int(parts[0])
+        winners_count = int(parts[1])
+        prize = parts[2].strip()
+
+        duration_sec = duration_min * 60
+        ends_at = int(time.time()) + duration_sec
+
+        embed = disnake.Embed(
+            title="🎉 РОЗЫГРЫШ ПРИЗОВ · GIVEAWAY",
+            description=(
+                f"🎁 **Приз:** **{prize}**\n"
+                f"👑 **Победителей:** `{winners_count}`\n"
+                f"⏱ **Длительность:** `{duration_min} мин.`\n"
+                f"👨‍💻 **Организатор:** {message.author.mention}\n\n"
+                f"👇 Нажмите кнопку ниже, чтобы принять участие!"
+            ),
+            color=disnake.Color.purple()
+        )
+        view = disnake.ui.View(timeout=None)
+        # Placeholder view until message is sent
+        btn_gw = disnake.ui.Button(label="🎉 Участвовать (0)", style=disnake.ButtonStyle.primary, custom_id="dc_gw_temp")
+        view.add_item(btn_gw)
+
+        gw_msg = await message.channel.send(embed=embed, view=view)
+        gw_id = await db.create_giveaway(message.channel.id, gw_msg.id, prize, winners_count, duration_sec, message.author.id)
+
+        # Update button with real custom_id
+        real_view = disnake.ui.View(timeout=None)
+        real_view.add_item(disnake.ui.Button(label="🎉 Участвовать (0)", style=disnake.ButtonStyle.primary, custom_id=f"dc_gw_join:{gw_id}"))
+        await gw_msg.edit(view=real_view)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 22. 🏆 MEE6 & ARCANE LEVELING SUITE (УРОВНИ И ТОПЫ)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("уровень", "лвл"):
+        target = await extract_target_discord_member(message, args) or message.author
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        tu = await db.get_user(t_db_uid) or {}
+        lvl = tu.get("level", 1) or 1
+        xp = tu.get("xp", 0)
+        msgs = tu.get("messages", 0)
+
+        needed_xp = (lvl) ** 2 * 100
+        prev_xp = (lvl - 1) ** 2 * 100
+        progress_xp = max(0, xp - prev_xp)
+        step_needed = max(1, needed_xp - prev_xp)
+        bar = build_progress_bar(progress_xp, step_needed, 10)
+
+        embed = disnake.Embed(
+            title=f"📊 Уровень активности {target.display_name}",
+            color=disnake.Color.from_rgb(0, 230, 118)
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="🎖 Уровень", value=f"`{lvl} ур.`", inline=True)
+        embed.add_field(name="⚡️ Опыт", value=f"`{xp:,} XP`", inline=True)
+        embed.add_field(name="💬 Сообщений", value=f"`{msgs:,}`", inline=True)
+        embed.add_field(name="📈 Прогресс до следующего уровня", value=f"`{bar}` `{progress_xp}/{step_needed} XP`", inline=False)
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("топ_уровень", "топ_лвл", "топ уровень", "топ лвл", "levels"):
+        top_rows = await db.get_top_level(10)
+        lines = ["🏆 **ТОП-10 АКТИВНЫХ УЧАСТНИКОВ СЕРВЕРА (MEE6 / XP)**", "━━━━━━━━━━━━━━━━━━━━"]
+        medals = ["🥇", "🥈", "🥉", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣", "🔟"]
+        for idx, r in enumerate(top_rows):
+            m_id = r["user_id"] - config.DISCORD_UID_OFFSET
+            name = r.get("first_name") or r.get("username") or f"ID {m_id}"
+            lines.append(f"{medals[idx]} **{name}** — `{r.get('level', 1)} ур.` (`{r.get('xp', 0):,} XP`)")
+        embed = disnake.Embed(
+            title="📈 ТАБЛИЦА ЛИДЕРОВ ПО ОПЫТУ",
+            description="\n".join(lines),
+            color=disnake.Color.gold()
+        )
+        await message.reply(embed=embed)
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 23. 🛡 CARL-BOT & DYNO SUITE (ЧИСТКА И ИНФОРМАЦИЯ)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("очистить", "clear", "purge"):
+        if not message.guild:
+            return await message.reply("❌ Доступно только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 2:
+            return await message.reply("⛔️ Очищать сообщения могут сотрудники от **[2] Младший модератор**!")
+
+        clean_args = re.sub(r"<@!?\d+>", "", args).strip()
+        num_m = re.search(r"\b(\d+)\b", clean_args)
+        count = int(num_m.group(1)) if num_m else 10
+        count = min(100, max(1, count))
+
+        try:
+            deleted = await message.channel.purge(limit=count + 1)
+            temp = await message.channel.send(f"🧹 Удалено сообщений: **{len(deleted) - 1}**! (Модератор: {message.author.mention})")
+            await asyncio.sleep(4.0)
+            await temp.delete()
+        except Exception as e:
+            await message.reply(f"❌ Ошибка чистки сообщений: {e}")
+        return
+
+    elif cmd in ("сервер_инфо", "сервер инфо"):
+        if not message.guild:
+            return await message.reply("❌ Доступно только на сервере!")
+        g = message.guild
+        owner = g.get_member(g.owner_id)
+        owner_name = owner.mention if owner else f"<@{g.owner_id}>"
+        c_date = g.created_at.strftime("%d.%m.%Y %H:%M")
+
+        embed = disnake.Embed(
+            title=f"🏰 ИНФОРМАЦИЯ О СЕРВЕРЕ: {g.name}",
+            color=disnake.Color.from_rgb(155, 89, 182)
+        )
+        if g.icon:
+            embed.set_thumbnail(url=g.icon.url)
+        embed.add_field(name="👑 Создатель", value=owner_name, inline=True)
+        embed.add_field(name="👥 Участников", value=f"`{g.member_count:,}`", inline=True)
+        embed.add_field(name="🚀 Бустов", value=f"`{g.premium_subscription_count}` (Уровень {g.premium_tier})", inline=True)
+        embed.add_field(name="💬 Текстовых каналов", value=f"`{len(g.text_channels)}`", inline=True)
+        embed.add_field(name="🔊 Голосовых каналов", value=f"`{len(g.voice_channels)}`", inline=True)
+        embed.add_field(name="🎭 Ролей", value=f"`{len(g.roles)}`", inline=True)
+        embed.add_field(name="📅 Дата создания", value=f"`{c_date}`", inline=False)
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("юзер_инфо", "юзер инфо"):
+        target = await extract_target_discord_member(message, args) or message.author
+        reg_date = target.created_at.strftime("%d.%m.%Y")
+        join_date = target.joined_at.strftime("%d.%m.%Y") if isinstance(target, disnake.Member) and target.joined_at else "Неизвестно"
+        t_db_uid = config.DISCORD_UID_OFFSET + target.id
+        tu = await db.get_user(t_db_uid) or {}
+
+        embed = disnake.Embed(
+            title=f"👤 ДОСЬЕ ПОЛЬЗОВАТЕЛЯ: {target.display_name}",
+            color=disnake.Color.from_rgb(52, 152, 219)
+        )
+        embed.set_thumbnail(url=target.display_avatar.url)
+        embed.add_field(name="🆔 ID", value=f"`{target.id}`", inline=True)
+        embed.add_field(name="💰 Баланс", value=f"`{tu.get('balance', 0):,}` 🌑", inline=True)
+        embed.add_field(name="🎖 Уровень", value=f"`{tu.get('level', 1)} ур.`", inline=True)
+        embed.add_field(name="📅 Регистрация в Discord", value=f"`{reg_date}`", inline=True)
+        embed.add_field(name="📥 Вход на сервер", value=f"`{join_date}`", inline=True)
+        if isinstance(target, disnake.Member):
+            roles_str = ", ".join([r.mention for r in target.roles[1:][:8]]) or "Нет ролей"
+            embed.add_field(name="🎭 Роли", value=roles_str, inline=False)
+        await message.reply(embed=embed)
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 24. 💼 DANK MEMER SUITE (РАБОТА, ПОПРОШАЙНИЧЕСТВО, МАГАЗИН)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("работа", "работать", "work", "смена"):
+        now_ts = int(time.time())
+        last_w = u_data.get("last_work_ts", 0) or 0
+        if now_ts - last_w < 3600:
+            left_m = int((3600 - (now_ts - last_w)) / 60)
+            return await message.reply(f"⏳ Вы уже отработали смену! Отдохните ещё **{left_m} мин.**")
+
+        lvl = u_data.get("level", 1) or 1
+        jobs = [
+            ("Курьер пиццы", 500, 1000),
+            ("Бариста в кофейне", 1000, 2000),
+            ("IT-Разработчик", 2000, 4000),
+            ("Трейдер на бирже", 3500, 6500),
+            ("Гендиректор холдинга", 5000, 10000),
+        ]
+        job_idx = min(len(jobs) - 1, int(lvl / 3))
+        j_name, min_pay, max_pay = jobs[job_idx]
+        earned = random.randint(min_pay, max_pay)
+
+        await db.add_balance(db_uid, earned)
+        await db.update_user_action_cooldown(db_uid, "work")
+        await db.add_user_xp(db_uid, 35)
+
+        embed = disnake.Embed(
+            title=f"💼 ТРУДОВАЯ СМЕНА: {j_name}",
+            description=f"Отличная работа, {message.author.mention}! Вы успешно завершили смену.\n💰 Зарплата: **`+{earned:,}` 🌑 монет**\n⚡️ Опыт: `+35 XP`",
+            color=disnake.Color.green()
+        )
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("попрошайничать", "бомжевать", "beg"):
+        now_ts = int(time.time())
+        last_b = u_data.get("last_beg_ts", 0) or 0
+        if now_ts - last_b < 120:
+            left_s = 120 - (now_ts - last_b)
+            return await message.reply(f"⏳ Вы сможете снова попросить монет через **{left_s} сек.**")
+
+        donors = [
+            ("Илон Маск", 250, "Поделился карманными деньгами!"),
+            ("Добрая бабушка у метро", 120, "Дала монетку на пирожок."),
+            ("Мистер Бист", 450, "Снял челлендж и дал тебе котлету монет!"),
+            ("Уличный кот", 30, "Принёс блестящую монетку в зубах."),
+            ("Прохожий миллионер", 300, "Оценил твой энтузиазм.")
+        ]
+        donor_name, pay, note = random.choice(donors)
+        await db.add_balance(db_uid, pay)
+        await db.update_user_action_cooldown(db_uid, "beg")
+
+        embed = disnake.Embed(
+            title=f"🪙 {donor_name}",
+            description=f"«{note}»\n\n💰 Получено: **`+{pay:,}` 🌑 монет**",
+            color=disnake.Color.gold()
+        )
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("криминал", "crime"):
+        now_ts = int(time.time())
+        last_c = u_data.get("last_crime_ts", 0) or 0
+        if now_ts - last_c < 600:
+            left_m = int((600 - (now_ts - last_c)) / 60)
+            return await message.reply(f"🚨 Полиция ещё ищет вас в районе! Залягте на дно на **{left_m} мин.**")
+
+        await db.update_user_action_cooldown(db_uid, "crime")
+        success = random.random() < 0.55
+        if success:
+            loot = random.randint(2500, 8500)
+            await db.add_balance(db_uid, loot)
+            embed = disnake.Embed(
+                title="🥷 УСПЕШНОЕ ОГРАБЛЕНИЕ!",
+                description=f"Вы взломали инкассаторский терминал и скрылись без следа!\n💰 Куш: **`+{loot:,}` 🌑 монет**!",
+                color=disnake.Color.green()
+            )
+        else:
+            fine = random.randint(1000, 3000)
+            await db.add_balance(db_uid, -fine)
+            embed = disnake.Embed(
+                title="🚨 ОБЛАВА ПОЛИЦИИ!",
+                description=f"Сигнализация сработала! Вас задержали и выписали крупный штраф.\n💸 Потеряно: **`-{fine:,}` 🌑 монет**!",
+                color=disnake.Color.red()
+            )
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("магазин", "шоп", "shop"):
+        embed = disnake.Embed(
+            title="🛒 СУПЕРМАРКЕТ MOXXI · ПРЕДМЕТЫ И БАФФЫ",
+            description=(
+                "Купить предмет: `купить [номер]`\n\n"
+                "1️⃣ 🛡 **Бронированный Сейф** — `25 000 🌑`\n"
+                "   *100% защита баланса от ограблений других игроков на 7 дней.*\n\n"
+                "2️⃣ ⚡️ **XP Бустер x2** — `15 000 🌑`\n"
+                "   *Удваивает весь получаемый опыт за общение на 24 часа.*\n\n"
+                "3️⃣ 🎫 **Лотерейный Билет** — `1 000 🌑`\n"
+                "   *Моментальный розыгрыш: шанс выиграть до 100 000 монет!*\n\n"
+                "4️⃣ 👑 **Золотой Престиж** — `50 000 🌑`\n"
+                "   *Эксклюзивная золотая аура и плашка в профиле.*"
+            ),
+            color=disnake.Color.from_rgb(241, 196, 15)
+        )
+        await message.reply(embed=embed)
+        return
+
+    elif cmd in ("купить",):
+        clean_args = args.strip()
+        cur_bal = u_data.get("balance", 0)
+        if clean_args == "1":
+            if cur_bal < 25000:
+                return await message.reply("❌ Недостаточно монет! Сейф стоит **25 000 🌑**.")
+            await db.add_balance(db_uid, -25000)
+            until = await db.set_user_safe(db_uid, 7 * 86400)
+            u_date = datetime.datetime.fromtimestamp(until).strftime("%d.%m.%Y")
+            return await message.reply(f"🛡 **Бронированный Сейф активирован!** Ваши сбережения защищены от грабежей до **{u_date}**!")
+
+        elif clean_args == "2":
+            if cur_bal < 15000:
+                return await message.reply("❌ Недостаточно монет! XP Бустер стоит **15 000 🌑**.")
+            await db.add_balance(db_uid, -15000)
+            until = await db.set_user_xp_booster(db_uid, 86400)
+            return await message.reply("⚡️ **XP Бустер x2 активирован на 24 часа!** Теперь вы получаете удвоенный опыт за сообщения!")
+
+        elif clean_args == "3":
+            if cur_bal < 1000:
+                return await message.reply("❌ Билет стоит **1 000 🌑**!")
+            await db.add_balance(db_uid, -1000)
+            roll = random.random()
+            if roll < 0.05:
+                win = 50000
+                res = "🎉 ДЖЕКПОТ!"
+            elif roll < 0.25:
+                win = 5000
+                res = "✨ Крупный выигрыш!"
+            elif roll < 0.60:
+                win = 1500
+                res = "👍 Небольшой выигрыш!"
+            else:
+                win = 0
+                res = "💨 Билет оказался пустым!"
+            if win > 0:
+                await db.add_balance(db_uid, win)
+            return await message.reply(f"🎫 **Лотерейный билет стёрт:** {res}\n💰 Выплата: **`+{win:,}` 🌑 монет**!")
+
+        else:
+            return await message.reply("💡 Выберите товар: `купить 1` (Сейф), `купить 2` (Бустер), `купить 3` (Лотерея)!")
+
+    elif cmd in ("инвентарь", "инв", "inv", "рюкзак"):
+        now_ts = int(time.time())
+        safe_u = u_data.get("safe_until", 0) or 0
+        booster_u = u_data.get("xp_booster_until", 0) or 0
+        mc_n = u_data.get("mc_nick", "") or "Не привязан"
+
+        safe_status = f"🟢 Активен до {datetime.datetime.fromtimestamp(safe_u).strftime('%d.%m %H:%M')}" if safe_u > now_ts else "⚪️ Отсутствует"
+        boost_status = f"🟢 Активен (x2 XP)" if booster_u > now_ts else "⚪️ Отсутствует"
+
+        embed = disnake.Embed(
+            title=f"🎒 ИНВЕНТАРЬ И БАФФЫ: {message.author.display_name}",
+            color=disnake.Color.from_rgb(46, 204, 113)
+        )
+        embed.set_thumbnail(url=message.author.display_avatar.url)
+        embed.add_field(name="🛡 Бронированный сейф", value=safe_status, inline=True)
+        embed.add_field(name="⚡️ XP Бустер", value=boost_status, inline=True)
+        embed.add_field(name="🎮 Ник Minecraft", value=f"`{mc_n}`", inline=True)
+        embed.add_field(name="💰 Наличные", value=f"`{u_data.get('balance', 0):,}` 🌑", inline=True)
+        embed.add_field(name="🏦 В банке", value=f"`{u_data.get('bank', 0):,}` 🌑", inline=True)
+        await message.reply(embed=embed)
+        return
+
+    # ═══════════════════════════════════════════════════════════
+    # 25. 📩 TICKET TOOL SUITE (ИНТЕРАКТИВНАЯ ПАНЕЛЬ ТИКЕТОВ)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("панель_тикетов", "панель тикетов"):
+        if not message.guild:
+            return await message.reply("❌ Доступно только на сервере!")
+        sender_rank = await get_effective_rank(message.guild.id, message.author)
+        if sender_rank < 8:
+            return await message.reply("⛔️ Создавать панель тикетов могут сотрудники от **[8] Тех. администратор**!")
+
+        embed = disnake.Embed(
+            title="🆘 СЛУЖБА ПОДДЕРЖКИ СЕРВЕРА",
+            description=(
+                "Если у вас возникла проблема, вопрос по серверу, жалоба или вопрос по оплате:\n\n"
+                "👇 **Нажмите кнопку ниже, чтобы открыть тикет с администрацией:**"
+            ),
+            color=disnake.Color.from_rgb(155, 89, 182)
+        )
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(
+            label="📩 Открыть тикет",
+            style=disnake.ButtonStyle.primary,
+            custom_id="dc_open_ticket_panel",
+            emoji="✍️"
+        ))
+        await message.channel.send(embed=embed, view=view)
+        try:
+            await message.delete()
+        except Exception:
+            pass
+        return
+
+
 @bot.event
 async def on_button_click(inter: disnake.MessageInteraction):
     cid = inter.component.custom_id
@@ -1917,6 +2515,90 @@ async def on_button_click(inter: disnake.MessageInteraction):
         cl_embed.add_field(name="⛔️ Отклонён", value=f"Модератор: {inter.author.mention}", inline=False)
         await inter.response.edit_message(embed=cl_embed, view=None)
 
+    # --- Giveaway Join Button ---
+    elif cid.startswith("dc_gw_join:"):
+        gw_id = int(cid.split(":", 1)[1])
+        success, total_count = await db.join_giveaway(gw_id, inter.author.id)
+        if not success:
+            return await inter.response.send_message("⚠️ Вы уже принимаете участие в этом розыгрыше!", ephemeral=True)
+        # Update button counter
+        try:
+            view = disnake.ui.View(timeout=None)
+            view.add_item(disnake.ui.Button(label=f"🎉 Участвовать ({total_count})", style=disnake.ButtonStyle.primary, custom_id=cid))
+            await inter.message.edit(view=view)
+        except Exception:
+            pass
+        await inter.response.send_message("🎉 **Вы успешно зарегистрированы в розыгрыше!** Желаем удачи!", ephemeral=True)
+
+    # --- Verification Button ---
+    elif cid.startswith("dc_verify:"):
+        role_name = cid.split(":", 1)[1]
+        guild = inter.guild
+        if not guild:
+            return
+        role = disnake.utils.get(guild.roles, name=role_name)
+        if not role:
+            try:
+                role = await guild.create_role(name=role_name, reason="Авто-роль для верификации MOXXI")
+            except Exception as e:
+                return await inter.response.send_message(f"❌ Ошибка выдачи роли (нет прав у бота): {e}", ephemeral=True)
+        try:
+            await inter.author.add_roles(role, reason="Успешная верификация через MOXXI")
+            await inter.response.send_message(f"🎉 **Поздравляем!** Вы успешно прошли верификацию и получили роль **{role.name}**!", ephemeral=True)
+        except Exception as e:
+            await inter.response.send_message(f"❌ Ошибка присвоения роли: {e}", ephemeral=True)
+
+    # ═══════════════════════════════════════════════════════════
+    # 26. ВОРДЛ / WORDLE (Мини-игра со словами 🟩🟨⬛)
+    # ═══════════════════════════════════════════════════════════
+    elif cmd in ("вордл", "wordle"):
+        user_id = message.author.id
+        guess_word = args.strip() if args else None
+        if not guess_word:
+            sess = wordle_game.get_wordle_session(user_id)
+            if not sess:
+                sess = wordle_game.start_wordle_session(user_id)
+            board_text = wordle_game.render_board(sess)
+            embed = disnake.Embed(
+                title="🟩 ИГРА ВОРДЛ (Wordle)",
+                description=(
+                    f"Загадано секретное русское слово из **5 букв**!\n"
+                    f"У вас есть **6 попыток**, чтобы его разгадать.\n\n"
+                    f"{board_text}\n\n"
+                    f"💡 Чтобы сделать ход, напишите: `вордл [слово]` или `/вордл [слово]`!"
+                ),
+                color=disnake.Color.blurple()
+            )
+            await message.reply(embed=embed)
+            return
+
+        embed, is_won, is_over, reward = wordle_game.process_guess(user_id, guess_word)
+        if is_won and reward > 0:
+            await db.add_balance(db_uid, reward)
+            await db.add_user_xp(db_uid, 100)
+        await message.reply(embed=embed)
+        return
+
+    # --- Ticket Panel Button ---
+    elif cid == "dc_open_ticket_panel":
+        # Create ticket for user
+        tid = await db.create_support_ticket(
+            user_id=config.DISCORD_UID_OFFSET + inter.author.id,
+            user_name=str(inter.author),
+            text="Обращение открыто через панель поддержки",
+            status="open",
+            platform="discord",
+            platform_peer_id=inter.channel.id
+        )
+        embed = disnake.Embed(
+            title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
+            description=f"👤 **Игрок:** {inter.author.mention}\n⏳ **Статус:** Ожидает сотрудника",
+            color=disnake.Color.gold()
+        )
+        await inter.channel.send(embed=embed, view=DiscordTicketView(ticket_id=tid))
+        await inter.response.send_message(f"✅ Тикет **#{tid}** успешно создан! Опишите вашу проблему прямо здесь.", ephemeral=True)
+
+
 
 async def main():
     token = config.DISCORD_BOT_TOKEN
@@ -1930,4 +2612,6 @@ async def main():
 
 
 if __name__ == "__main__":
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     asyncio.run(main())
