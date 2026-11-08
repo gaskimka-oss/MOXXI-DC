@@ -22,7 +22,7 @@ intents.message_content = True
 intents.members = True
 
 bot = commands.Bot(
-    command_prefix=commands.when_mentioned_or(*config.PREFIXES, ""),
+    command_prefix=commands.when_mentioned_or(*config.PREFIXES),
     intents=intents,
     case_insensitive=True,
     help_command=None
