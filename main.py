@@ -433,7 +433,7 @@ class MainMenuView(disnake.ui.View):
         embed.add_field(name="💰 На руках", value=f"`{u_data.get('balance', 0):,}` 🌑", inline=True)
         embed.add_field(name="🏦 В банке", value=f"`{u_data.get('bank', 0):,}` 🌑", inline=True)
         embed.add_field(name="🎖 Ранг", value=f"`{u_data.get('rank', 1)} ур.`", inline=True)
-        embed.add_field(name="⭐ Опыт / Уровень", value=f"`{u_data.get('level', 1)} ур. ({u_data.get('xp', 0)} XP)`", inline=True)
+        embed.add_field(name="⭐ Опыт / Уровень", value=f"**Уровень {max(1, int((u_data.get('xp', 0) / 100) ** 0.5) + 1)}** • `{u_data.get('xp', 0):,} XP`", inline=True)
         await inter.response.send_message(embed=embed, ephemeral=True)
 
     @disnake.ui.button(label="Бонус", emoji="🎁", style=disnake.ButtonStyle.success, custom_id="moxxi_dc_bonus")
@@ -830,7 +830,7 @@ _user_xp_cd: dict[int, float] = {}
 def build_progress_bar(cur: int, total: int, length: int = 10) -> str:
     ratio = min(1.0, max(0.0, cur / total if total > 0 else 0))
     filled = int(length * ratio)
-    return "█" * filled + "░" * (length - filled)
+    return "▰" * filled + "▱" * (length - filled)
 
 async def giveaway_watcher():
     """Фоновый мониторинг розыгрышей: автоматическое подведение итогов по таймеру"""
@@ -1064,7 +1064,7 @@ async def on_message(message: disnake.Message):
         embed.add_field(name="💰 На руках", value=f"`{u_data.get('balance', 0):,}` 🌑", inline=True)
         embed.add_field(name="🏦 В банке", value=f"`{u_data.get('bank', 0):,}` 🌑", inline=True)
         embed.add_field(name="🎖 Ранг", value=f"`{u_data.get('rank', 1)} ур.`", inline=True)
-        embed.add_field(name="⭐ Опыт / Уровень", value=f"`{u_data.get('level', 1)} ур. ({u_data.get('xp', 0)} XP)`", inline=True)
+        embed.add_field(name="⭐ Опыт / Уровень", value=f"**Уровень {max(1, int((u_data.get('xp', 0) / 100) ** 0.5) + 1)}** • `{u_data.get('xp', 0):,} XP`", inline=True)
         await message.channel.send(embed=embed, view=MainMenuView())
         return
 
@@ -2166,25 +2166,30 @@ async def on_message(message: disnake.Message):
         target = await extract_target_discord_member(message, args) or message.author
         t_db_uid = config.DISCORD_UID_OFFSET + target.id
         tu = await db.get_user(t_db_uid) or {}
-        lvl = tu.get("level", 1) or 1
         xp = tu.get("xp", 0)
         msgs = tu.get("messages", 0)
 
-        needed_xp = (lvl) ** 2 * 100
-        prev_xp = (lvl - 1) ** 2 * 100
-        progress_xp = max(0, xp - prev_xp)
-        step_needed = max(1, needed_xp - prev_xp)
+        lvl = max(1, int((xp / 100) ** 0.5) + 1)
+        prev_lvl_xp = ((lvl - 1) ** 2) * 100
+        next_lvl_xp = (lvl ** 2) * 100
+        progress_xp = max(0, xp - prev_lvl_xp)
+        step_needed = max(1, next_lvl_xp - prev_lvl_xp)
+        percent = int((progress_xp / step_needed) * 100)
         bar = build_progress_bar(progress_xp, step_needed, 10)
 
         embed = disnake.Embed(
-            title=f"📊 Уровень активности {target.display_name}",
+            title=f"📊 Уровень активности — {target.display_name}",
             color=disnake.Color.from_rgb(0, 230, 118)
         )
         embed.set_thumbnail(url=target.display_avatar.url)
-        embed.add_field(name="🎖 Уровень", value=f"`{lvl} ур.`", inline=True)
+        embed.add_field(name="🎖 Уровень", value=f"**Уровень {lvl}**", inline=True)
         embed.add_field(name="⚡️ Опыт", value=f"`{xp:,} XP`", inline=True)
         embed.add_field(name="💬 Сообщений", value=f"`{msgs:,}`", inline=True)
-        embed.add_field(name="📈 Прогресс до следующего уровня", value=f"`{bar}` `{progress_xp}/{step_needed} XP`", inline=False)
+        embed.add_field(
+            name="📈 Прогресс до следующего уровня",
+            value=f"`[{bar}]` {progress_xp}/{step_needed} XP ({percent}%)",
+            inline=False
+        )
         await message.reply(embed=embed)
         return
 

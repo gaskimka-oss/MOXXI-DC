@@ -26,7 +26,7 @@ log = logging.getLogger("moxxi-dc")
 def build_bar(cur: int, total: int, length: int = 10) -> str:
     ratio = min(1.0, max(0.0, cur / total if total > 0 else 0))
     filled = int(length * ratio)
-    return "█" * filled + "░" * (length - filled)
+    return "▰" * filled + "▱" * (length - filled)
 
 
 class SlashSuite(commands.Cog):
@@ -78,12 +78,13 @@ class SlashSuite(commands.Cog):
         xp = u_data.get("xp", 0)
         mc_nick = u_data.get("mc_nick") or "Не привязан"
 
-        # Level math
-        lvl = int((xp / 100) ** 0.5) if xp > 0 else 0
-        cur_lvl_xp = (lvl ** 2) * 100
-        next_lvl_xp = ((lvl + 1) ** 2) * 100
-        xp_needed = max(1, next_lvl_xp - cur_lvl_xp)
-        xp_in_lvl = xp - cur_lvl_xp
+        # Level math: starts at Lv. 1
+        lvl = max(1, int((xp / 100) ** 0.5) + 1)
+        prev_lvl_xp = ((lvl - 1) ** 2) * 100
+        next_lvl_xp = (lvl ** 2) * 100
+        xp_needed = max(1, next_lvl_xp - prev_lvl_xp)
+        xp_in_lvl = max(0, xp - prev_lvl_xp)
+        percent = int((xp_in_lvl / xp_needed) * 100)
         p_bar = build_bar(xp_in_lvl, xp_needed, 10)
 
         # Buffs
@@ -103,7 +104,7 @@ class SlashSuite(commands.Cog):
 
         embed.add_field(name="💰 Баланс", value=f"`{bal:,}` 🌑", inline=True)
         embed.add_field(name="🏦 В банке", value=f"`{bank:,}` 🌑", inline=True)
-        embed.add_field(name="🏆 Уровень", value=f"**Lv. {lvl}**\n`[{p_bar}]` {xp_in_lvl}/{xp_needed} XP", inline=False)
+        embed.add_field(name="🏆 Уровень и Опыт", value=f"**Уровень {lvl}** • `{xp:,} XP`\n`[{p_bar}]` {xp_in_lvl}/{xp_needed} XP ({percent}%)", inline=False)
         embed.add_field(name="⛏ Minecraft", value=f"`{mc_nick}`", inline=True)
         embed.add_field(name="🛡 Сейф", value=safe_str, inline=True)
         embed.add_field(name="⚡️ Бустер опыта", value=boost_str, inline=True)
