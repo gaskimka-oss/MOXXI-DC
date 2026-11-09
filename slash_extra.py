@@ -33,6 +33,17 @@ class SlashExtra(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    async def cog_slash_command_error(self, inter: disnake.ApplicationCommandInteraction, error: Exception):
+        log.error(f"Slash extra command '{inter.data.name}' failed: {error}", exc_info=True)
+        msg = f"⚠️ Ошибка при выполнении команды: {error}"
+        try:
+            if inter.response.is_done():
+                await inter.edit_original_response(content=msg)
+            else:
+                await inter.response.send_message(content=msg, ephemeral=True)
+        except Exception:
+            pass
+
     # ═══════════════════════════════════════════════════════════════
     # 1. 🐾 ПИТОМЦЫ И ЭКСПЕДИЦИИ
     # ═══════════════════════════════════════════════════════════════

@@ -77,6 +77,13 @@ bot.load_extension("slash_extra")
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands"
 WEBAPP_URL = "https://gaskimka-oss.github.io/MOXXI/"
 
+def get_webapp_url(user_name: str = "", balance: int = 0, user_id: int = 0, open_tab: str = "") -> str:
+    import urllib.parse
+    safe_name = urllib.parse.quote(str(user_name or "Игрок"))
+    tab_param = f"&open={open_tab}" if open_tab else ""
+    return f"https://gaskimka-oss.github.io/MOXXI/?user={safe_name}&balance={balance}&platform=discord&uid={user_id}{tab_param}"
+
+
 # ═══════════════════════════════════════════════════════════════
 # 🃏 КАРТОЧНЫЙ ДВИЖОК ДЛЯ БЛЭКДЖЕКА (21 ОЧКО)
 # ═══════════════════════════════════════════════════════════════
@@ -1352,7 +1359,7 @@ async def on_message(message: disnake.Message):
         await message.reply(embed=embed)
         return
 
-    elif cmd in ("купить_бизнес", "купитьбизнес"):
+    elif cmd in ("купить_бизнес", "купитьбизнес", "купить бизнес"):
         keys = list(db.BIZ_CATALOG.keys())
         idx_match = re.search(r"\b(\d+)\b", args)
         b_key = None
@@ -1562,18 +1569,24 @@ async def on_message(message: disnake.Message):
     # ═══════════════════════════════════════════════════════════
     # 16. WEBAPP ИГРА
     # ═══════════════════════════════════════════════════════════
-    elif cmd in ("играть", "апп", "app", "веб"):
+    elif cmd in ("играть", "апп", "app", "веб", "игры", "вебапп", "приложение"):
+        bal = u_data.get("balance", 0)
+        app_url = get_webapp_url(message.author.display_name, bal, message.author.id)
         view = disnake.ui.View()
-        view.add_item(disnake.ui.Button(label="🎮 Запустить MOXXI WebApp", url=WEBAPP_URL, style=disnake.ButtonStyle.link, emoji="🕹"))
+        view.add_item(disnake.ui.Button(label="🎮 Запустить MOXXI WebApp", url=app_url, style=disnake.ButtonStyle.link, emoji="🕹"))
+        view.add_item(disnake.ui.Button(label="🏢 Каталог предприятий", url=get_webapp_url(message.author.display_name, bal, message.author.id, "biz"), style=disnake.ButtonStyle.link, emoji="🏢"))
         embed = disnake.Embed(
             title="🎮 ИНТЕРАКТИВНОЕ WEB-ПРИЛОЖЕНИЕ MOXXI",
-            description="Открывайте полноэкранную игру прямо в браузере или мобильном приложении: кликер, казино, инвентарь и рулетки!",
+            description=(
+                f"Открывайте полноэкранную игру прямо в браузере или Discord!\n\n"
+                f"💰 **Синхронизированный баланс:** `{bal:,}` 🌑 монет\n"
+                f"🏢 **Каталог предприятий:** 15 видов бизнеса с пассивным доходом!\n"
+                f"🎰 **Казино и Рулетка:** Слоты 777, Колесо Фортуны, Мины и Краш!"
+            ),
             color=disnake.Color.from_rgb(0, 242, 254)
         )
         await message.reply(embed=embed, view=view)
         return
-
-
 
     # ═══════════════════════════════════════════════════════════
     # 17. 👑 СИСТЕМА РАНГОВ И СОСТАВ АДМИНИСТРАЦИИ (1–10)
