@@ -60,6 +60,64 @@ class SlashSuite(commands.Cog):
             pass
 
     # ═══════════════════════════════════════════════════════════════
+    # 0. СТАРТ / START / МЕНЮ
+    # ═══════════════════════════════════════════════════════════════
+    async def _send_start_menu(self, inter: disnake.ApplicationCommandInteraction):
+        user_id = inter.author.id
+        db_uid = config.DISCORD_UID_OFFSET + user_id
+        await db.ensure_user(db_uid, username=str(inter.author), first_name=inter.author.display_name)
+        u_data = await db.get_user(db_uid) or {}
+        bal = u_data.get("balance", 1000)
+        bank = u_data.get("bank", 0)
+        level = u_data.get("level", 1)
+        xp = u_data.get("xp", 0)
+        rank = u_data.get("rank", 1)
+
+        import urllib.parse
+        safe_name = urllib.parse.quote(str(inter.author.display_name or "Игрок"))
+        webapp_url = f"https://gaskimka-oss.github.io/MOXXI/?user={safe_name}&balance={bal}&platform=discord&uid={user_id}"
+        invite_url = getattr(config, "INVITE_URL", "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands")
+
+        embed = disnake.Embed(
+            title="🚀 ГЛАВНОЕ ИНТЕРАКТИВНОЕ МЕНЮ MOXXI",
+            description=(
+                f"👋 Привет, {inter.author.mention}! Я универсальный бот **MOXXI**.\n\n"
+                f"💰 **На руках:** `{bal:,}` 🌑 монет | 🏦 **В банке:** `{bank:,}` 🌑\n"
+                f"🎖 **Ранг:** `{rank} ур.` | ⭐ **Уровень:** `{level}` (`{xp:,}` XP)\n\n"
+                f"🎮 **Управляйте ботом в 1 клик с помощью кнопок ниже:**\n"
+                f"• Нажмите **«🎮 Открыть WebApp»** — кликер, слоты и пассивный доход\n"
+                f"• Нажмите **«➕ Добавить бота»** — пригласить MOXXI на сервер или в группу\n"
+                f"• Нажмите **«📖 Меню команд»** — полный каталог 415+ слэш-команд\n"
+                f"• Нажмите **«🔄 Обновить»** — обновить ваши текущие балансы и статистику"
+            ),
+            color=disnake.Color.from_rgb(0, 242, 254)
+        )
+        if inter.author.display_avatar:
+            embed.set_thumbnail(url=inter.author.display_avatar.url)
+        embed.set_footer(text="MOXXI 3.0 • Нажимайте кнопки — вводить команды вручную не нужно!")
+
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(label="🎮 Открыть WebApp", url=webapp_url, style=disnake.ButtonStyle.link, emoji="🕹", row=0))
+        view.add_item(disnake.ui.Button(label="➕ Добавить бота", url=invite_url, style=disnake.ButtonStyle.link, emoji="🤖", row=0))
+        view.add_item(disnake.ui.Button(label="🔄 Обновить меню", style=disnake.ButtonStyle.success, custom_id="moxxi_dm_start_btn", emoji="🔄", row=0))
+        view.add_item(disnake.ui.Button(label="📖 Меню команд", style=disnake.ButtonStyle.secondary, custom_id="moxxi_dm_help_btn", emoji="📜", row=1))
+        view.add_item(disnake.ui.Button(label="🛠 Техподдержка", style=disnake.ButtonStyle.primary, custom_id="moxxi_dm_ticket_btn", emoji="💬", row=1))
+
+        await inter.response.send_message(embed=embed, view=view)
+
+    @commands.slash_command(name="старт", description="🚀 Главное интерактивное меню MOXXI с кнопками и профилем")
+    async def cmd_start(self, inter: disnake.ApplicationCommandInteraction):
+        await self._send_start_menu(inter)
+
+    @commands.slash_command(name="start", description="🚀 Main interactive MOXXI menu with buttons and profile")
+    async def cmd_start_en(self, inter: disnake.ApplicationCommandInteraction):
+        await self._send_start_menu(inter)
+
+    @commands.slash_command(name="меню", description="📋 Главное интерактивное меню и быстрые кнопки MOXXI")
+    async def cmd_menu(self, inter: disnake.ApplicationCommandInteraction):
+        await self._send_start_menu(inter)
+
+    # ═══════════════════════════════════════════════════════════════
     # 1. ПОМОЩЬ / HELP
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="помощь", description="📖 Справочник всех 415+ команд MOXXI и навигация")

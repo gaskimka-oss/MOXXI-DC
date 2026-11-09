@@ -427,6 +427,7 @@ class HelpView(disnake.ui.View):
         self.add_item(HelpSelect())
         self.add_item(disnake.ui.Button(label="🎮 Играть в WebApp", url=WEBAPP_URL, style=disnake.ButtonStyle.link, emoji="🕹"))
         self.add_item(disnake.ui.Button(label="➕ Пригласить бота", url=INVITE_URL, style=disnake.ButtonStyle.link, emoji="🤖"))
+        self.add_item(disnake.ui.Button(label="🚀 Главное меню", style=disnake.ButtonStyle.success, custom_id="moxxi_dm_start_btn", emoji="🚀"))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -437,6 +438,7 @@ class MainMenuView(disnake.ui.View):
         super().__init__(timeout=None)
         self.add_item(disnake.ui.Button(label="🎮 Играть в WebApp", url=WEBAPP_URL, style=disnake.ButtonStyle.link, emoji="🕹"))
         self.add_item(disnake.ui.Button(label="➕ Добавить на сервер", url=INVITE_URL, style=disnake.ButtonStyle.link, emoji="🤖"))
+        self.add_item(disnake.ui.Button(label="🚀 Главное меню", style=disnake.ButtonStyle.primary, custom_id="moxxi_dm_start_btn", emoji="🚀"))
 
     @disnake.ui.button(label="Профиль", emoji="👑", style=disnake.ButtonStyle.success, custom_id="moxxi_dc_profile")
     async def btn_profile(self, button: disnake.ui.Button, inter: disnake.MessageInteraction):

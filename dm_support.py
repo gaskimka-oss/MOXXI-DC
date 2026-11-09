@@ -235,12 +235,12 @@ class DMSupportHubView(disnake.ui.View):
         safe_name = urllib.parse.quote(str(user_name or "Игрок"))
         webapp_url = f"https://gaskimka-oss.github.io/MOXXI/?user={safe_name}&balance={balance}&platform=discord&uid={user_id}"
 
-        # РЯД 0: Быстрый доступ и добавление бота
+        # РЯД 0: Быстрый доступ и старт
         self.add_item(disnake.ui.Button(
-            label="➕ Добавить в группу / на сервер",
-            url=INVITE_URL,
-            style=disnake.ButtonStyle.link,
-            emoji="🤖",
+            label="🚀 Главное меню (Старт)",
+            style=disnake.ButtonStyle.success,
+            custom_id="moxxi_dm_start_btn",
+            emoji="🚀",
             row=0
         ))
         self.add_item(disnake.ui.Button(
@@ -251,14 +251,21 @@ class DMSupportHubView(disnake.ui.View):
             row=0
         ))
         self.add_item(disnake.ui.Button(
+            label="➕ Добавить бота",
+            url=INVITE_URL,
+            style=disnake.ButtonStyle.link,
+            emoji="🤖",
+            row=0
+        ))
+
+        # РЯД 1: Меню команд и поддержка
+        self.add_item(disnake.ui.Button(
             label="📖 Меню команд",
             style=disnake.ButtonStyle.secondary,
             custom_id="moxxi_dm_help_btn",
             emoji="📜",
-            row=0
+            row=1
         ))
-
-        # РЯД 1: Связь с разработчиками и поддержка
         self.add_item(disnake.ui.Button(
             label="🛠 Написать разработчикам",
             style=disnake.ButtonStyle.primary,
@@ -273,12 +280,14 @@ class DMSupportHubView(disnake.ui.View):
             emoji="🐞",
             row=1
         ))
+
+        # РЯД 2: Дополнительно
         self.add_item(disnake.ui.Button(
             label="💡 Предложить идею",
-            style=disnake.ButtonStyle.success,
+            style=disnake.ButtonStyle.secondary,
             custom_id="moxxi_dm_idea_btn",
             emoji="✨",
-            row=1
+            row=2
         ))
 
 
@@ -290,7 +299,53 @@ async def handle_dm_button_interaction(inter: disnake.MessageInteraction) -> boo
     if not cid:
         return False
 
-    if cid == "moxxi_dm_ticket_btn":
+    if cid == "moxxi_dm_start_btn":
+        u_uid = config.DISCORD_UID_OFFSET + inter.author.id
+        await db.ensure_user(u_uid, username=str(inter.author), first_name=inter.author.display_name)
+        u_data = await db.get_user(u_uid) or {}
+        bal = u_data.get("balance", 1000)
+        bank = u_data.get("bank", 0)
+        level = u_data.get("level", 1)
+        xp = u_data.get("xp", 0)
+        rank = u_data.get("rank", 1)
+
+        import urllib.parse
+        safe_name = urllib.parse.quote(str(inter.author.display_name or "Игрок"))
+        webapp_url = f"https://gaskimka-oss.github.io/MOXXI/?user={safe_name}&balance={bal}&platform=discord&uid={inter.author.id}"
+
+        embed = disnake.Embed(
+            title="🚀 ГЛАВНОЕ МЕНЮ MOXXI",
+            description=(
+                f"👋 Привет, {inter.author.mention}! Добро пожаловать в центр управления **MOXXI**.\n\n"
+                f"💰 **На руках:** `{bal:,}` 🌑 монет | 🏦 **В банке:** `{bank:,}` 🌑\n"
+                f"🎖 **Ранг:** `{rank} ур.` | ⭐ **Уровень:** `{level}` (`{xp:,}` XP)\n\n"
+                f"🎮 **Быстрые действия (нажимайте кнопки ниже):**\n"
+                f"• **🎮 Открыть WebApp** — кликер монет, слоты и пассивный доход\n"
+                f"• **➕ Добавить бота** — пригласить MOXXI на сервер или в группу\n"
+                f"• **📖 Меню команд** — полный список всех 415+ слэш-команд\n"
+                f"• **🛠 Связь** — поддержка и прямое общение с разработчиками"
+            ),
+            color=disnake.Color.from_rgb(0, 242, 254)
+        )
+        if inter.author.display_avatar:
+            embed.set_thumbnail(url=inter.author.display_avatar.url)
+        embed.set_footer(text="MOXXI 3.0 • Нажимайте кнопки — вводить команды текстом не нужно!")
+
+        view = disnake.ui.View(timeout=None)
+        view.add_item(disnake.ui.Button(label="🎮 Открыть WebApp", url=webapp_url, style=disnake.ButtonStyle.link, emoji="🕹", row=0))
+        view.add_item(disnake.ui.Button(label="➕ Добавить бота", url=INVITE_URL, style=disnake.ButtonStyle.link, emoji="🤖", row=0))
+        view.add_item(disnake.ui.Button(label="🔄 Обновить меню", style=disnake.ButtonStyle.success, custom_id="moxxi_dm_start_btn", emoji="🔄", row=0))
+        view.add_item(disnake.ui.Button(label="📖 Меню команд", style=disnake.ButtonStyle.secondary, custom_id="moxxi_dm_help_btn", emoji="📜", row=1))
+        view.add_item(disnake.ui.Button(label="🛠 Техподдержка", style=disnake.ButtonStyle.primary, custom_id="moxxi_dm_ticket_btn", emoji="💬", row=1))
+
+        # Если сообщение уже было главным меню — редактируем его на месте, иначе отправляем новое
+        if inter.message and inter.message.author.id == inter.bot.user.id and "ГЛАВНОЕ МЕНЮ MOXXI" in (inter.message.embeds[0].title if inter.message.embeds else ""):
+            await inter.response.edit_message(embed=embed, view=view)
+        else:
+            await inter.response.send_message(embed=embed, view=view, ephemeral=True)
+        return True
+
+    elif cid == "moxxi_dm_ticket_btn":
         await inter.response.send_modal(DMTicketModal("ticket"))
         return True
 
@@ -350,30 +405,30 @@ async def handle_direct_message(bot: commands.Bot, message: disnake.Message) -> 
         description=(
             f"👋 Здравствуйте, **{message.author.display_name}**!\n\n"
             f"Вы находитесь в официальном диалоге с ботом **MOXXI**.\n"
-            f"Здесь вы можете добавить бота на свой сервер или в группу, связаться напрямую с разработчиками, "
-            f"сообщить о найденной ошибке или запустить интерактивный WebApp!\n\n"
+            f"Здесь вы можете открыть интерактивное меню, добавить бота на сервер, "
+            f"связаться с разработчиками или запустить мини-приложение!\n\n"
             f"👇 **Выберите нужное действие с помощью кнопок ниже:**"
         ),
         color=disnake.Color.from_rgb(0, 242, 254)
     )
     embed.add_field(
-        name="➕ Добавить бота",
-        value="Нажмите кнопку **«➕ Добавить в группу / на сервер»** ниже, чтобы подключить MOXXI!",
+        name="🚀 Меню и Старт",
+        value="Нажмите кнопку **«🚀 Главное меню (Старт)»**, чтобы управлять ботом в один клик без ввода команд!",
         inline=False
     )
     embed.add_field(
-        name="🛠 Написать разработчикам",
-        value="Задать вопрос, сотрудничество или помощь по серверу",
-        inline=True
-    )
-    embed.add_field(
-        name="🐛 Сообщить о баге",
-        value="Нашли ошибку или сбой в боте? Мы быстро всё починим!",
+        name="➕ Добавить бота",
+        value="Нажмите **«➕ Добавить бота»**, чтобы пригласить MOXXI на сервер или в группу",
         inline=True
     )
     embed.add_field(
         name="🎮 Игры и WebApp",
-        value=f"Ваш баланс: `{bal:,}` 🌑 монет (доступен в кликере и слотах)",
+        value=f"Баланс: `{bal:,}` 🌑 монет (кликер, слоты)",
+        inline=True
+    )
+    embed.add_field(
+        name="🛠 Разработчикам",
+        value="Задать вопрос, тикет, сообщить о баге или предложить идею",
         inline=True
     )
 
