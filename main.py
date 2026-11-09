@@ -987,15 +987,6 @@ async def on_message(message: disnake.Message):
     if not clean_txt:
         return
 
-    # Обработка личных сообщений (ЛС с ботом / Direct Messages)
-    if message.guild is None:
-        parts_chk = clean_txt.split()
-        first_w = parts_chk[0].lower() if parts_chk else ""
-        if first_w not in ("баланс", "профиль", "уровень", "ранг", "игры", "веб", "апп"):
-            from dm_support import handle_direct_message
-            await handle_direct_message(bot, message)
-            return
-
     # Опциональное снятие префикса (!, m!, ., /) если пользователь его написал
     for pfx in ("!", "m!", ".", "/"):
         if clean_txt.startswith(pfx):
@@ -1019,9 +1010,18 @@ async def on_message(message: disnake.Message):
         cmd = raw_first
         args = clean_txt[len(parts[0]):].strip()
 
-    # Если сообщение не является зарегистрированной командой бота — игнорируем
-    if cmd not in KNOWN_COMMANDS:
-        return
+    # Обработка личных сообщений (ЛС с ботом / Direct Messages):
+    # 1. Если это известная команда бота (помощь, команды, баланс, профиль, работа, бизнесы и т.д.) — исполняем её!
+    # 2. Если это неизвестный текст (вопрос разработчикам, обращение, привет) — открываем Центр Поддержки и Тикетов
+    if message.guild is None:
+        if cmd not in KNOWN_COMMANDS:
+            from dm_support import handle_direct_message
+            await handle_direct_message(bot, message)
+            return
+    else:
+        # На сервере: игнорируем обычные сообщения чата, если это не зарегистрированная команда бота
+        if cmd not in KNOWN_COMMANDS:
+            return
 
     db_uid = config.DISCORD_UID_OFFSET + message.author.id
     db_cid = config.DISCORD_UID_OFFSET + (message.guild.id if message.guild else message.channel.id)
