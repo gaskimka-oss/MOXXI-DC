@@ -728,39 +728,6 @@ class SlashSuite(commands.Cog):
         await inter.response.send_message(embed=embed)
 
     # ═══════════════════════════════════════════════════════════════
-    # 15. ТИКЕТ В ТЕХПОДДЕРЖКУ
-    # ═══════════════════════════════════════════════════════════════
-    @commands.slash_command(name="тикет", description="📩 Открыть тикет в службу поддержки сервера")
-    async def cmd_ticket(
-        self,
-        inter: disnake.ApplicationCommandInteraction,
-        тема: str = commands.Param(description="Опишите ваш вопрос или проблему")
-    ):
-        from main import DiscordTicketView
-        tid = await db.create_support_ticket(
-            user_id=config.DISCORD_UID_OFFSET + inter.author.id,
-            user_name=str(inter.author),
-            text=тема,
-            status="open",
-            platform="discord",
-            platform_peer_id=inter.channel.id
-        )
-
-        embed = disnake.Embed(
-            title=f"🆘 ТИКЕТ В ПОДДЕРЖКУ #{tid}",
-            description=(
-                f"👤 **Игрок:** {inter.author.mention}\n"
-                f"❓ **Вопрос:**\n```\n{html.escape(тема)}\n```\n"
-                f"⏳ **Статус:** Ожидает сотрудника\n"
-                f"⏱ *Если модератор не ответит за 1 час, тикет автоматически освободится.*"
-            ),
-            color=disnake.Color.gold()
-        )
-        view = DiscordTicketView(ticket_id=tid)
-        await inter.channel.send(embed=embed, view=view)
-        await inter.response.send_message(f"✅ Ваш тикет **#{tid}** успешно создан и отправлен модераторам!", ephemeral=True)
-
-    # ═══════════════════════════════════════════════════════════════
     # 16. ПАНЕЛЬ ВЕРИФИКАЦИИ
     # ═══════════════════════════════════════════════════════════════
     @commands.slash_command(name="панель_верификации", description="🛡 Создать панель верификации с кнопкой")
@@ -791,33 +758,6 @@ class SlashSuite(commands.Cog):
 
         await inter.channel.send(embed=embed, view=view)
         await inter.response.send_message("✅ Панель верификации успешно создана!", ephemeral=True)
-
-    # ═══════════════════════════════════════════════════════════════
-    # 17. ПАНЕЛЬ ТИКЕТОВ
-    # ═══════════════════════════════════════════════════════════════
-    @commands.slash_command(name="панель_тикетов", description="🎫 Создать интерактивную панель поддержки")
-    async def cmd_ticket_panel(self, inter: disnake.ApplicationCommandInteraction):
-        if not inter.channel.permissions_for(inter.author).administrator:
-            return await inter.response.send_message("❌ Только администратор может создавать панель тикетов!", ephemeral=True)
-
-        embed = disnake.Embed(
-            title="🎫 СЛУЖБА ПОДДЕРЖКИ СЕРВЕРА",
-            description=(
-                "Возникли вопросы, проблемы или предложения?\n\n"
-                "Нажмите на кнопку ниже, чтобы моментально открыть личное обращение к модерации сервера!"
-            ),
-            color=disnake.Color.blurple()
-        )
-        btn = disnake.ui.Button(
-            style=disnake.ButtonStyle.primary,
-            label="📩 Открыть тикет",
-            custom_id="dc_open_ticket_panel"
-        )
-        view = disnake.ui.View(timeout=None)
-        view.add_item(btn)
-
-        await inter.channel.send(embed=embed, view=view)
-        await inter.response.send_message("✅ Панель поддержки успешно создана!", ephemeral=True)
 
     # ═══════════════════════════════════════════════════════════════
     # 18. ВОРДЛ / WORDLE (Wordle Game 🟩🟨⬛)

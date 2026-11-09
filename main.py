@@ -73,6 +73,7 @@ bot = commands.Bot(
 )
 bot.load_extension("slash_suite")
 bot.load_extension("slash_extra")
+bot.load_extension("tickets_system")
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands"
 WEBAPP_URL = "https://gaskimka-oss.github.io/MOXXI/"
@@ -949,6 +950,11 @@ async def on_ready():
         log.warning("Ошибка синхронизации команд: %s", e)
     bot.add_view(MainMenuView())
     bot.add_view(HelpView())
+    try:
+        from tickets_system import MainTicketPanelView
+        bot.add_view(MainTicketPanelView())
+    except Exception as e:
+        log.warning("Could not register MainTicketPanelView: %s", e)
     t_pulse = asyncio.create_task(keep_alive_pulse())
     _background_tasks.add(t_pulse)
     t_pulse.add_done_callback(_background_tasks.discard)
@@ -2735,6 +2741,14 @@ async def on_button_click(inter: disnake.MessageInteraction):
     cid = inter.component.custom_id
     if not cid:
         return
+
+    # Advanced Channel Ticket System buttons and selects
+    try:
+        from tickets_system import handle_ticket_interaction
+        if await handle_ticket_interaction(inter):
+            return
+    except Exception as e:
+        log.error("Error in handle_ticket_interaction: %s", e, exc_info=True)
 
     # 1. Staff Ticket actions: dc_t_claim, dc_t_release, dc_t_answer, dc_t_reject
     if cid.startswith("dc_t_"):

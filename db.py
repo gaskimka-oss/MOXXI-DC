@@ -1331,3 +1331,122 @@ async def progress_daily_quest(user_id: int, quest_id: str, count: int = 1) -> N
         (new_c, is_done, user_id, today, quest_id)
     )
     await conn().commit()
+
+
+# ── Discord Private Channel Tickets Suite ─────────────────────────────────────
+
+async def get_ticket_settings(guild_id: int) -> dict:
+    async with conn().execute("SELECT * FROM dc_ticket_settings WHERE guild_id = ?", (guild_id,)) as cur:
+        row = await cur.fetchone()
+        if row:
+            return dict(row)
+    return {
+        "guild_id": guild_id,
+        "category_id": 0,
+        "archive_category_id": 0,
+        "staff_role_id": 0,
+        "log_channel_id": 0,
+        "ticket_counter": 0,
+        "panel_channel_id": 0,
+        "panel_message_id": 0,
+    }
+
+async def save_ticket_settings(guild_id: int, **kwargs) -> None:
+    cur_settings = await get_ticket_settings(guild_id)
+    cur_settings.update(kwargs)
+    await conn().execute(
+        """INSERT INTO dc_ticket_settings (
+               guild_id, category_id, archive_category_id, staff_role_id,
+               log_channel_id, ticket_counter, panel_channel_id, panel_message_id
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(guild_id) DO UPDATE SET
+               category_id = excluded.category_id,
+               archive_category_id = excluded.archive_category_id,
+               staff_role_id = excluded.staff_role_id,
+               log_channel_id = excluded.log_channel_id,
+               ticket_counter = excluded.ticket_counter,
+               panel_channel_id = excluded.panel_channel_id,
+               panel_message_id = excluded.panel_message_id""",
+        (
+            guild_id,
+            cur_settings.get("category_id", 0),
+            cur_settings.get("archive_category_id", 0),
+            cur_settings.get("staff_role_id", 0),
+            cur_settings.get("log_channel_id", 0),
+            cur_settings.get("ticket_counter", 0),
+            cur_settings.get("panel_channel_id", 0),
+            cur_settings.get("panel_message_id", 0),
+        )
+    )
+    await conn().commit()
+
+async def increment_ticket_counter(guild_id: int) -> int:
+    settings = await get_ticket_settings(guild_id)
+    new_val = settings.get("ticket_counter", 0) + 1
+    await save_ticket_settings(guild_id, ticket_counter=new_val)
+    return new_val
+
+async def create_dc_ticket(
+    guild_id: int,
+    channel_id: int,
+    user_id: int,
+    user_name: str,
+    category_key: str,
+    category_title: str,
+    form_data: dict
+) -> int:
+    import json
+    now = int(time.time())
+    form_json = json.dumps(form_data, ensure_ascii=False)
+    async with conn().execute(
+        """INSERT INTO dc_tickets (
+               guild_id, channel_id, user_id, user_name, category_key,
+               category_title, form_data_json, status, created_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
+        (guild_id, channel_id, user_id, user_name, category_key, category_title, form_json, now)
+    ) as cur:
+        await conn().commit()
+        return int(cur.lastrowid)
+
+async def get_dc_ticket_by_channel(channel_id: int) -> dict | None:
+    async with conn().execute("SELECT * FROM dc_tickets WHERE channel_id = ?", (channel_id,)) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def get_dc_ticket(ticket_id: int) -> dict | None:
+    async with conn().execute("SELECT * FROM dc_tickets WHERE id = ?", (ticket_id,)) as cur:
+        row = await cur.fetchone()
+        return dict(row) if row else None
+
+async def claim_dc_ticket(ticket_id: int, staff_id: int, staff_name: str) -> bool:
+    await conn().execute(
+        "UPDATE dc_tickets SET status = 'claimed', claimed_by = ?, claimed_name = ? WHERE id = ?",
+        (staff_id, staff_name, ticket_id)
+    )
+    await conn().commit()
+    return True
+
+async def release_dc_ticket(ticket_id: int) -> bool:
+    await conn().execute(
+        "UPDATE dc_tickets SET status = 'open', claimed_by = 0, claimed_name = '' WHERE id = ?",
+        (ticket_id,)
+    )
+    await conn().commit()
+    return True
+
+async def close_dc_ticket(ticket_id: int, closed_by: int, reason: str = "") -> bool:
+    now = int(time.time())
+    await conn().execute(
+        "UPDATE dc_tickets SET status = 'closed', closed_at = ?, closed_by = ?, close_reason = ? WHERE id = ?",
+        (now, closed_by, reason, ticket_id)
+    )
+    await conn().commit()
+    return True
+
+async def get_user_open_dc_tickets(guild_id: int, user_id: int) -> list[dict]:
+    async with conn().execute(
+        "SELECT * FROM dc_tickets WHERE guild_id = ? AND user_id = ? AND status != 'closed'",
+        (guild_id, user_id)
+    ) as cur:
+        rows = await cur.fetchall()
+        return [dict(r) for r in rows]
