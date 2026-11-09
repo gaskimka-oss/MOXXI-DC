@@ -74,6 +74,7 @@ bot = commands.Bot(
 bot.load_extension("slash_suite")
 bot.load_extension("slash_extra")
 bot.load_extension("tickets_system")
+bot.load_extension("dm_support")
 
 INVITE_URL = "https://discord.com/api/oauth2/authorize?client_id=1568910980002619402&permissions=8&scope=bot%20applications.commands"
 WEBAPP_URL = "https://gaskimka-oss.github.io/MOXXI/"
@@ -953,6 +954,8 @@ async def on_ready():
     try:
         from tickets_system import MainTicketPanelView
         bot.add_view(MainTicketPanelView())
+        from dm_support import DMSupportHubView
+        bot.add_view(DMSupportHubView())
     except Exception as e:
         log.warning("Could not register MainTicketPanelView: %s", e)
     t_pulse = asyncio.create_task(keep_alive_pulse())
@@ -981,6 +984,15 @@ async def on_message(message: disnake.Message):
     clean_txt = message.content.strip()
     if not clean_txt:
         return
+
+    # Обработка личных сообщений (ЛС с ботом / Direct Messages)
+    if message.guild is None:
+        parts_chk = clean_txt.split()
+        first_w = parts_chk[0].lower() if parts_chk else ""
+        if first_w not in ("баланс", "профиль", "уровень", "ранг", "игры", "веб", "апп"):
+            from dm_support import handle_direct_message
+            await handle_direct_message(bot, message)
+            return
 
     # Опциональное снятие префикса (!, m!, ., /) если пользователь его написал
     for pfx in ("!", "m!", ".", "/"):
@@ -2746,6 +2758,9 @@ async def on_button_click(inter: disnake.MessageInteraction):
     try:
         from tickets_system import handle_ticket_interaction
         if await handle_ticket_interaction(inter):
+            return
+        from dm_support import handle_dm_button_interaction
+        if await handle_dm_button_interaction(inter):
             return
     except Exception as e:
         log.error("Error in handle_ticket_interaction: %s", e, exc_info=True)
