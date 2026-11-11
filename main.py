@@ -644,6 +644,7 @@ KNOWN_COMMANDS = {
     "крипта", "crypto", "биржа", "купить крипту", "купить_крипту", "продать крипту", "продать_крипту",
     "квесты", "задания", "quests", "квест",
     "монетка", "кости",
+    "промо", "промокод", "код", "promo", "promocode",
 }
 KNOWN_COMMANDS.update(RANK_PROMOTIONS.keys())
 KNOWN_COMMANDS.update(RANK_DEMOTIONS)
@@ -1044,6 +1045,68 @@ async def on_message(message: disnake.Message):
                 )
             except Exception:
                 pass
+
+    # ═══════════════════════════════════════════════════════════
+    # 🎁 ПРОМОКОДЫ MOXXI 3.0
+    # ═══════════════════════════════════════════════════════════
+    if cmd in ("промо", "промокод", "код", "promocode", "promo"):
+        p_code = args.strip().upper()
+        if not p_code:
+            embed = disnake.Embed(
+                title="🎁 АКТИВАЦИЯ ПОДАРОЧНЫХ ПРОМОКОДОВ MOXXI 3.0",
+                description=(
+                    "💡 Напишите в чат: `!промо [код]` или `промо [код]`\n\n"
+                    "🎉 **Секретный промокод на открытие:** `промо ОБНОВА3.0` (+2.500.000 монет!)"
+                ),
+                color=disnake.Color.gold()
+            )
+            return await message.channel.send(embed=embed)
+
+        now_ts = int(time.time())
+        row_act = await db.fetchone(
+            "SELECT ts FROM promocode_activations WHERE code=? AND user_id=?",
+            (p_code, db_uid)
+        )
+        if row_act:
+            return await message.channel.send(f"❌ {message.author.mention}, вы уже активировали промокод **{p_code}**!")
+
+        reward = 0
+        uses_left = 0
+        if p_code in ("ОБНОВА3.0", "ОБНОВА30", "OBNOVA3.0", "OBNOVA30"):
+            reward = 2500000
+            uses_left = 999999
+        else:
+            row_p = await db.fetchone("SELECT reward, uses_left FROM promocodes WHERE code=?", (p_code,))
+            if row_p:
+                reward = int(row_p["reward"])
+                uses_left = int(row_p["uses_left"])
+
+        if reward <= 0:
+            return await message.channel.send(f"❌ {message.author.mention}, промокод **{p_code}** не найден или недействителен!")
+
+        if uses_left <= 0:
+            return await message.channel.send(f"❌ {message.author.mention}, у промокода **{p_code}** закончились активации!")
+
+        await db.add_balance(db_uid, reward)
+        await db.execute(
+            "INSERT OR REPLACE INTO promocode_activations (code, user_id, chat_id, reward, ts) VALUES (?, ?, ?, ?, ?)",
+            (p_code, db_uid, db_cid, reward, now_ts)
+        )
+        await db.execute(
+            "UPDATE promocodes SET uses_left = uses_left - 1 WHERE code=?",
+            (p_code,)
+        )
+        embed = disnake.Embed(
+            title="🎉 ПРОМОКОД УСПЕШНО АКТИВИРОВАН!",
+            description=(
+                f"👤 Игрок: {message.author.mention}\n"
+                f"🔑 Код: `{p_code}`\n"
+                f"💰 Начислено: **+{reward:,}** 🌑 монет на баланс!\n\n"
+                f"🎮 Приятной игры в MOXXI 3.0!"
+            ),
+            color=disnake.Color.green()
+        )
+        return await message.channel.send(embed=embed)
 
     # ═══════════════════════════════════════════════════════════
     # 0. ИНВАЙТ / ПРИГЛАШЕНИЕ
