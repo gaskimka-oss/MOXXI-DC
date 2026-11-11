@@ -2000,11 +2000,20 @@ async def on_message(message: disnake.Message):
         return
 
     # ═══════════════════════════════════════════════════════════
-    # 19. 🆘 СЛУЖБА ПОДДЕРЖКИ И ТИКЕТЫ
+    # 19. 🆘 СЛУЖБА ПОДДЕРЖКИ, БАГ-РЕПОРТЫ И ИДЕИ
     # ═══════════════════════════════════════════════════════════
-    elif cmd in ("поддержка", "тикет", "support", "ticket"):
+    elif cmd in ("поддержка", "тикет", "support", "ticket", "баг", "bug", "репорт", "идея", "idea", "предложение"):
         if not args:
-            return await message.reply("💡 Напишите: `тикет [описание вашей проблемы или вопроса]`")
+            return await message.reply(
+                "💡 **Служба поддержки и банк идей MOXXI:**\n"
+                "• Чтобы сообщить о баге: `баг [описание проблемы]` или `поддержка [вопрос]`\n"
+                "• Чтобы предложить идею: `идея [текст вашей идеи]`\n"
+                "• Официальный Discord сервер поддержки: https://discord.gg/7hDq4R2q"
+            )
+
+        is_idea = cmd in ("идея", "idea", "предложение")
+        is_bug = cmd in ("баг", "bug", "репорт")
+        cat_label = "💡 Идея" if is_idea else ("🛠 Баг / Ошибка" if is_bug else "🆘 Поддержка")
 
         # Создаем тикет в БД
         tid = await db.create_support_ticket(
@@ -2017,17 +2026,18 @@ async def on_message(message: disnake.Message):
         )
 
         embed = disnake.Embed(
-            title=f"🆘 НОВОЕ ОБРАЩЕНИЕ В ТЕХПОДДЕРЖКУ #{tid}",
+            title=f"🆘 {cat_label.upper()} В ТЕХПОДДЕРЖКУ #{tid}",
             description=(
                 f"👤 **От:** {message.author.mention} (`{message.author.id}`)\n"
-                f"📝 **Проблема:**\n«{args[:1000]}»\n\n"
+                f"📂 **Категория:** `{cat_label}`\n"
+                f"📝 **Суть:**\n«{args[:1000]}»\n\n"
                 f"⏳ **Статус:** 🟢 Открыт (Ожидает стаффа)"
             ),
-            color=disnake.Color.gold()
+            color=disnake.Color.gold() if is_idea else (disnake.Color.red() if is_bug else disnake.Color.blurple())
         )
         t_view = DiscordTicketView(ticket_id=tid)
         await message.channel.send(embed=embed, view=t_view)
-        await message.reply(f"✅ Ваше обращение принято (Тикет `#{tid}`)! Сотрудники администрации скоро ответят.")
+        await message.reply(f"✅ Ваше обращение принято ({cat_label} `#{tid}`)! Сотрудники администрации скоро ответят.")
         return
 
 
