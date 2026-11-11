@@ -37,27 +37,34 @@ SECTIONS = {1: {'title': '👑 РАЗДЕЛ 1: РАНГИ (1-10), НАЗНАЧЕ
 def get_total_commands_count() -> int:
     return sum(len(sec["commands"]) for sec in SECTIONS.values())
 
-def get_hub_text() -> str:
+def get_hub_text(page: int = 1) -> str:
     total = get_total_commands_count()
+    if page == 2:
+        return (
+            f"✨ СПРАВОЧНИК КОМАНД MOXXI 3.0 DISCORD (Страница 2/2) ✨\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"Всего в боте {total} активных команд! Выберите раздел:\n\n"
+            f"⚔️ 7. Данжи, Шахта, Рыбалка и Крафт ({len(SECTIONS[7]['commands'])} команд)\n"
+            f"📜 8. Квесты, Ачивки, Титулы и VIP ({len(SECTIONS[8]['commands'])} команд)\n"
+            f"🐉 9. Кланы, Рейд-боссы и Торги ({len(SECTIONS[9]['commands'])} команд)\n"
+            f"💘 10. Семья, КПЗ, Интерактив и Отношения ({len(SECTIONS[10]['commands'])} команд)\n"
+            f"💖 11. 45 РП-действий (Романтичные и тёплые)\n"
+            f"🔥 12. 40 РП-действий (Боевые и дерзкие)\n\n"
+            f"👇 Выберите раздел из выпадающего меню или напишите номер:\n"
+            f"🔍 Поиск по любой команде: «найти [слово]»"
+        )
     return (
-        f"✨ ПОЛНЫЙ СПРАВОЧНИК КОМАНД MOXXI 3.0 VK ✨\n"
+        f"✨ СПРАВОЧНИК КОМАНД MOXXI 3.0 DISCORD (Страница 1/2) ✨\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
-        f"В боте работает {total} активных команд и 18 игровых систем!\n"
-        f"Все команды полностью задокументированы и открыты для игроков:\n\n"
+        f"Всего в боте {total} активных команд! Выберите раздел:\n\n"
         f"👑 1. Ранги и Модерация ({len(SECTIONS[1]['commands'])} команд)\n"
         f"🛡 2. Баны, Муты и Варны ({len(SECTIONS[2]['commands'])} команд)\n"
         f"⚙️ 3. Настройки и Чистка чата ({len(SECTIONS[3]['commands'])} команд)\n"
         f"💰 4. Экономика, Банк и Финансы ({len(SECTIONS[4]['commands'])} команд)\n"
         f"🏢 5. Бизнесы (40 шт), Работы и Дома ({len(SECTIONS[5]['commands'])} команд)\n"
-        f"🎰 6. Казино, Азарт и Мини-игры ({len(SECTIONS[6]['commands'])} команд)\n"
-        f"⚔️ 7. Данжи, Шахта, Рыбалка и Крафт ({len(SECTIONS[7]['commands'])} команд)\n"
-        f"📜 8. Квесты, Ачивки, Титулы и VIP ({len(SECTIONS[8]['commands'])} команд)\n"
-        f"🐉 9. Кланы, Рейд-боссы и Торги ({len(SECTIONS[9]['commands'])} команд)\n"
-        f"💘 10. Семья, КПЗ, Интерактив и Отношения ({len(SECTIONS[10]['commands'])} команд)\n"
-        f"💖 11. 45 РП-действий (Романтичные и тёплые)\n"
-        f"🔥 12. 40 РП-действий (Боевые и дерзкие)\n\n"
-        f"👇 Нажмите кнопку нужного раздела или напишите «команды 1» ... «команды 12»!\n"
-        f"🔍 Для мгновенного поиска напишите: «найти [слово]» (например «найти бан» или «найти дом»)"
+        f"🎰 6. Казино, Азарт и Мини-игры ({len(SECTIONS[6]['commands'])} команд)\n\n"
+        f"👇 Выберите раздел из выпадающего меню или напишите номер:\n"
+        f"🔍 Поиск по любой команде: «найти [слово]»"
     )
 
 def get_section_text(sec_id: int) -> str:
@@ -109,27 +116,33 @@ def search_commands(query: str, limit: int = 15) -> str:
     out.append(f"\n📖 Напишите «команды», чтобы открыть полное оглавление.")
     return "\n".join(out)
 
-def get_hub_keyboard() -> str:
+def get_hub_keyboard(page: int = 1) -> str:
     kb = Keyboard(inline=True)
-    # РЯД 1: 1, 2, 3 (Модерация, Баны, Настройки)
+    if page == 2:
+        kb.add(Text("⚔️ 7. Данжи/Фарм"), color=KeyboardButtonColor.NEGATIVE)
+        kb.add(Text("📜 8. Квесты/VIP"), color=KeyboardButtonColor.POSITIVE)
+        kb.row()
+        kb.add(Text("🐉 9. Кланы/Боссы"), color=KeyboardButtonColor.NEGATIVE)
+        kb.add(Text("💘 10. Семья/КПЗ"), color=KeyboardButtonColor.POSITIVE)
+        kb.row()
+        kb.add(Text("💖 11. Романтика"), color=KeyboardButtonColor.POSITIVE)
+        kb.add(Text("🔥 12. Боевые"), color=KeyboardButtonColor.NEGATIVE)
+        kb.row()
+        kb.add(Text("◀️ Назад (1-6)"), color=KeyboardButtonColor.PRIMARY)
+        kb.add(Text("🔍 Поиск команд"), color=KeyboardButtonColor.PRIMARY)
+        return kb.get_json()
+
     kb.add(Text("👑 1. Модерация"), color=KeyboardButtonColor.NEGATIVE)
     kb.add(Text("🛡 2. Баны/Варны"), color=KeyboardButtonColor.NEGATIVE)
-    kb.add(Text("⚙️ 3. Настройки"), color=KeyboardButtonColor.PRIMARY)
     kb.row()
-    # РЯД 2: 4, 5, 6 (Экономика, Бизнесы, Казино)
+    kb.add(Text("⚙️ 3. Настройки"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("💰 4. Экономика"), color=KeyboardButtonColor.POSITIVE)
+    kb.row()
     kb.add(Text("🏢 5. Бизнесы"), color=KeyboardButtonColor.PRIMARY)
     kb.add(Text("🎰 6. Казино/Игры"), color=KeyboardButtonColor.NEGATIVE)
     kb.row()
-    # РЯД 3: 7, 8, 9 (Данжи, Квесты, Кланы)
-    kb.add(Text("⚔️ 7. Данжи/Фарм"), color=KeyboardButtonColor.NEGATIVE)
-    kb.add(Text("📜 8. Квесты/VIP"), color=KeyboardButtonColor.POSITIVE)
-    kb.add(Text("🐉 9. Кланы/Боссы"), color=KeyboardButtonColor.NEGATIVE)
-    kb.row()
-    # РЯД 4: 10, 11, 12 (Семья, Романтика, Боевые)
-    kb.add(Text("💘 10. Семья/КПЗ"), color=KeyboardButtonColor.POSITIVE)
-    kb.add(Text("💖 11. Романтика"), color=KeyboardButtonColor.POSITIVE)
-    kb.add(Text("🔥 12. Боевые"), color=KeyboardButtonColor.NEGATIVE)
+    kb.add(Text("🔍 Поиск команд"), color=KeyboardButtonColor.PRIMARY)
+    kb.add(Text("Далее (7-12) ▶️"), color=KeyboardButtonColor.POSITIVE)
     return kb.get_json()
 
 def get_section_keyboard(sec_id: int) -> str:
